@@ -5,16 +5,20 @@ from app.api import (
     routes_users,
     routes_trabajadores,
     routes_qr,
-    routes_session
+    routes_session,
+    routes_auth,
+    routes_admin,
 )
 
 
 app = FastAPI(title="QR Producción")
 init_db()
 
-app.include_router(routes_setup.router, prefix="/setup")
+app.include_router(routes_setup.router)
 app.include_router(routes_session.router, prefix="/session")
 app.include_router(routes_trabajadores.router, prefix="/trabajadores")
 app.include_router(routes_qr.router, prefix="/qr")
 app.include_router(routes_users.router, prefix="/usuarios")
+app.include_router(routes_auth.router)
+app.include_router(routes_admin.router)
 

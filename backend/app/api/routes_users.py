@@ -8,12 +8,10 @@ router = APIRouter()
 def list_users():
     with SessionLocal() as db:
         rows = db.execute(
-            text("""
-                SELECT usuario, nombre, rol
+            text(""" SELECT usuario, nombre, rol
                 FROM usuarios
                 WHERE activo = true
-                ORDER BY rol, nombre
-            """)
+                ORDER BY rol, nombre """)
         ).mappings().all()
 
         return list(rows)

@@ -10,8 +10,10 @@ class Usuario(Base):
     usuario = mapped_column(String, primary_key=True)
     nombre = mapped_column(String)
     rol = mapped_column(String)
+    password_hash = mapped_column(String, nullable=True)
     activo = mapped_column(Boolean, default=True)
     creado_en = mapped_column(DateTime, default=datetime.utcnow)
+
 
 class QREmitido(Base):
     __tablename__ = "qr_emitidos"

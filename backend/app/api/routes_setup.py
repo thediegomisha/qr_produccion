@@ -1,40 +1,107 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from sqlalchemy import text
 from app.db.base import SessionLocal
+from app.core.passwords import hash_password
 
-router = APIRouter()
+# ======================================================
+# ROUTER SETUP (BOOTSTRAP DEL SISTEMA)
+# ======================================================
+# ⚠️ IMPORTANTE:
+# - AQUÍ SÍ VA EL PREFIJO /setup
+# - EN main.py NO DEBE REPETIRSE
+# ======================================================
 
+router = APIRouter(prefix="/setup", tags=["Setup"])
+
+
+# ------------------------------------------------------
+# VERIFICAR ESTADO DEL SISTEMA
+# ------------------------------------------------------
 @router.get("/status")
 def status():
+    """
+    Devuelve si el sistema ya fue inicializado.
+    initialized = True  → existe un ROOT activo
+    initialized = False → no existe ROOT (bootstrap pendiente)
+    """
     with SessionLocal() as db:
-        count = db.execute(text("SELECT COUNT(*) FROM usuarios")).scalar_one()
-        return {
-            "initialized": count > 0,
-            "users_count": int(count)
-        }
+        root = db.execute(
+            text(""" SELECT 1
+                FROM usuarios
+                WHERE rol = 'ROOT'
+                AND activo = true LIMIT 1 """)
+        ).first()
 
-@router.post("/init-supervisor")
-def init_supervisor(data: dict):
+    return {"initialized": bool(root)}
+
+
+# ------------------------------------------------------
+# INICIALIZAR ROOT (SOLO UNA VEZ)
+# ------------------------------------------------------
+@router.post("/init-root")
+def init_root(data: dict):
+    """
+    Crea el usuario ROOT inicial.
+    Este endpoint SOLO puede ejecutarse una vez.
+    """
+
     usuario = (data.get("usuario") or "").strip()
     nombre = (data.get("nombre") or "").strip()
+    password = (data.get("password") or "").strip()
 
-    if not usuario:
-        return {"error": "usuario es obligatorio"}
-    if not nombre:
-        return {"error": "nombre es obligatorio"}
+    # -------------------------------
+    # Validaciones
+    # -------------------------------
+    if not usuario or not nombre or not password:
+        raise HTTPException(
+            status_code=400,
+            detail="usuario, nombre y password son obligatorios"
+        )
+
+    if len(password) < 6:
+        raise HTTPException(
+            status_code=400,
+            detail="El password debe tener al menos 6 caracteres"
+        )
 
     with SessionLocal() as db:
-        count = db.execute(text("SELECT COUNT(*) FROM usuarios")).scalar_one()
-        if count > 0:
-            return {"error": "Sistema ya inicializado"}
+        # ¿Ya existe ROOT?
+        existe = db.execute(
+            text(""" SELECT 1
+                FROM usuarios
+                WHERE rol = 'ROOT' LIMIT 1 """)
+        ).first()
 
+        if existe:
+            raise HTTPException(
+                status_code=403,
+                detail="El sistema ya fue inicializado"
+            )
+
+        # Crear ROOT
         db.execute(
-            text("""
-                INSERT INTO usuarios (usuario, nombre, rol, activo)
-                VALUES (:u, :n, 'SUPERVISOR', true)
-            """),
-            {"u": usuario, "n": nombre}
+            text(""" INSERT INTO usuarios (
+                    usuario,
+                    nombre,
+                    rol,
+                    password_hash,
+                    activo )
+                VALUES (
+                    :usuario,
+                    :nombre,
+                    'ROOT',
+                    :password_hash,
+                    true ) """),
+            {
+                "usuario": usuario,
+                "nombre": nombre,
+                "password_hash": hash_password(password)
+            }
         )
+
         db.commit()
 
-    return {"ok": True}
+    return {
+        "ok": True,
+        "mensaje": "Usuario ROOT creado correctamente"
+    }

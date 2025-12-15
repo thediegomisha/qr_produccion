@@ -2,6 +2,8 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import text
 from app.db.base import SessionLocal
 from app.core.assignments import next_num_orden, next_cod_letra
+from app.core.session import get_rol
+
 
 router = APIRouter()
 
@@ -13,21 +15,20 @@ def listar_trabajadores(activos: bool = True):
     """
     Lista trabajadores.
     - activos=true  → solo activos
-    - activos=false → todos
-    """
+    - activos=false → todos """
     with SessionLocal() as db:
-        query = """
-            SELECT
+        query = """ SELECT
                 id,
                 dni,
                 nombre,
+                apellido_paterno,
+                apellido_materno,
                 rol,
                 num_orden,
                 cod_letra,
                 activo,
                 creado_en
-            FROM trabajadores
-        """
+            FROM trabajadores """
 
         if activos:
             query += " WHERE activo = true"
@@ -43,8 +44,14 @@ def listar_trabajadores(activos: bool = True):
 # ==================================================
 @router.post("/")
 def crear_trabajador(data: dict):
+    
+    if get_rol() not in ("ROOT", "SUPERVISOR"):
+        raise HTTPException(403, "Permiso insuficiente")
+
     dni = (data.get("dni") or "").strip()
     nombre = (data.get("nombre") or "").strip()
+    apellido_paterno = (data.get("apellido_paterno") or "").strip()
+    apellido_materno = (data.get("apellido_materno") or "").strip()
     rol = (data.get("rol") or "").strip()
 
     # -------------------------------
@@ -54,12 +61,16 @@ def crear_trabajador(data: dict):
         raise HTTPException(status_code=400, detail="DNI inválido (8 dígitos)")
 
     if not nombre:
-        raise HTTPException(status_code=400, detail="Nombre obligatorio")
+        raise HTTPException(400, "Nombres obligatorios")
+
+    if not apellido_paterno:
+        raise HTTPException(400, "Apellido paterno obligatorio")
+
 
     if rol not in ("EMPACADORA", "SELECCIONADOR"):
         raise HTTPException(
             status_code=400,
-            detail="Rol inválido (EMPACADORA / SELECCIONADOR)"
+            detail="Nombre y apellido paterno son obligatorios"
         )
 
     with SessionLocal() as db:
@@ -77,32 +88,32 @@ def crear_trabajador(data: dict):
         cod_letra = next_cod_letra(db)
 
         db.execute(
-            text("""
-                INSERT INTO trabajadores
-                (
+            text(""" INSERT INTO trabajadores (
                     dni,
                     nombre,
+                    apellido_paterno,
+                    apellido_materno,
                     rol,
                     num_orden,
                     cod_letra,
-                    activo
-                )
-                VALUES
-                (
+                    activo )
+                VALUES (
                     :dni,
                     :nombre,
+                    :ap_paterno,
+                    :ap_materno,
                     :rol,
                     :num_orden,
                     :cod_letra,
-                    true
-                )
-            """),
+                    true ) """),
             {
                 "dni": dni,
                 "nombre": nombre,
+                "ap_paterno": apellido_paterno,
+                "ap_materno": apellido_materno,
                 "rol": rol,
                 "num_orden": num_orden,
-                "cod_letra": cod_letra,
+                "cod_letra": cod_letra
             }
         )
 
@@ -123,11 +134,9 @@ def crear_trabajador(data: dict):
 def desactivar_trabajador(trabajador_id: int):
     with SessionLocal() as db:
         result = db.execute(
-            text("""
-                UPDATE trabajadores
+            text(""" UPDATE trabajadores
                 SET activo = false
-                WHERE id = :id
-            """),
+                WHERE id = :id """),
             {"id": trabajador_id}
         )
 
