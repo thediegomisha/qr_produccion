@@ -86,7 +86,7 @@ if resp.status_code == 200 and not resp.json().get("initialized"):
 # LOGIN
 # --------------------------------------------------
 if not st.session_state.auth:
-    st.set_page_config(page_title="Login - Sistema QR", layout="centered")
+    st.set_page_config(page_title="Login - Sistema QR", layout="wide")
     st.title("Ingreso al Sistema de Etiquetas")
 
     usuario = st.text_input("Usuario", key="login username")
@@ -188,6 +188,8 @@ if "Listar" in tabs:
         r = requests.get(f"{API}/trabajadores?activos=true")
         if r.status_code == 200:
             trabajadores = r.json()
+            # ORDENAR ASCENDENTE POR num_orden
+            trabajadores = sorted(trabajadores, key=lambda t: t["num_orden"])
             if trabajadores:
                 df = pd.DataFrame(trabajadores)
                 df_listado = df[COLUMNAS_LISTADO]
@@ -219,8 +221,6 @@ if "👤 Trabajadores" in tabs:
         with col_rol:        
             rol = st.selectbox("Rol", ["EMPACADORA", "SELECCIONADOR"], key="rol_trab")
 
-
-
         if st.button("Crear trabajador"):
             r = requests.post(
                 f"{API}/trabajadores",
@@ -248,21 +248,125 @@ if "👤 Trabajadores" in tabs:
                 st.error(r.text)
 
             st.divider()
-        st.subheader("Trabajadores activos")
+        
+                
+            st.subheader("Trabajadores activos")
+
         r = requests.get(f"{API}/trabajadores?activos=true")
-        if r.status_code == 200:
-            trabajadores = r.json()
-            if trabajadores:
-                df = pd.DataFrame(trabajadores)
-                df_listado = df[COLUMNAS_TRABAJADOR]
-
-                st.dataframe(df_listado, width="stretch")
-
-            else:
-                st.info("No hay trabajadores registrados")
-        else:
+        if r.status_code != 200:
             st.error("Error cargando trabajadores")
+            st.stop()
 
+        trabajadores = r.json()
+        # ORDENAR ASCENDENTE POR num_orden
+        trabajadores = sorted(trabajadores, key=lambda t: t["num_orden"])
+        if not trabajadores:
+            st.info("No hay trabajadores registrados")
+            st.stop()
+
+        df = pd.DataFrame(trabajadores)
+
+        st.markdown("### Lista de trabajadores")
+
+        # --------------------------------------------------
+        # TABLA CON ENCABEZADOS + ORDEN + ✏️
+        # --------------------------------------------------
+        df_ui = df.copy()
+
+        # Columna acción
+        df_ui["✏️"] = False
+
+        # Columnas visibles (id NO se muestra, pero se mantiene en df_ui)
+        columnas_ui = [
+            "✏️",
+            "dni",
+            "nombre",
+            "apellido_paterno",
+            "apellido_materno",
+            "rol",
+            "num_orden",
+            "cod_letra",
+        ]
+
+        edited_df = st.data_editor(
+            df_ui[columnas_ui],
+            hide_index=True,
+            num_rows="fixed",
+            disabled=[c for c in columnas_ui if c != "✏️"],
+            use_container_width=True,
+            key="tabla_trabajadores_editar"
+        )
+
+        seleccionados = edited_df[edited_df["✏️"] == True]
+
+        if len(seleccionados) == 1:
+            fila_idx = seleccionados.index[0]
+
+            # ⚠️ TOMAMOS EL REGISTRO ORIGINAL DEL BACKEND
+            tr = trabajadores[fila_idx]
+
+            st.session_state["editar_trabajador"] = tr
+            st.session_state["abrir_modal"] = True
+            st.session_state["modal_origen"] = "trabajadores"
+
+
+
+        # --------------------------------------------------
+        # MODAL DE EDICIÓN
+        # --------------------------------------------------
+        if (
+            st.session_state.get("abrir_modal")
+            and st.session_state.get("modal_origen") == "trabajadores"
+            and "👤 Trabajadores" in tabs
+        ):
+
+            tr = st.session_state["editar_trabajador"]
+
+            @st.dialog("Editar trabajador")
+            def modal_editar_trabajador():
+                with st.form("form_editar_trabajador"):
+                    dni = st.text_input("DNI", tr["dni"])
+                    nombre = st.text_input("Nombre", tr["nombre"])
+                    ap_pat = st.text_input("Apellido paterno", tr["apellido_paterno"])
+                    ap_mat = st.text_input("Apellido materno", tr["apellido_materno"])
+                    rol = st.selectbox(
+                        "Rol",
+                        ["EMPACADORA", "SELECCIONADOR"],
+                        index=["EMPACADORA", "SELECCIONADOR"].index(tr["rol"])
+                    )
+
+                    col1, col2 = st.columns(2)
+                    guardar = col1.form_submit_button("💾 Guardar")
+                    cancelar = col2.form_submit_button("❌ Cancelar")
+
+                if guardar:
+                    r = requests.put(
+                        f"{API}/trabajadores/{tr['id']}",
+                        json={
+                            "dni": dni,
+                            "nombre": nombre,
+                            "apellido_paterno": ap_pat,
+                            "apellido_materno": ap_mat,
+                            "rol": rol
+                        }
+                    )
+
+                    if r.status_code == 200:
+                        st.success("Trabajador actualizado correctamente")
+                        st.session_state.pop("editar_trabajador", None)
+                        st.session_state.pop("abrir_modal", None)
+                        st.rerun()
+                    else:
+                        st.error(r.text)
+
+                if cancelar:
+                    st.session_state.pop("editar_trabajador", None)
+                    st.session_state.pop("abrir_modal", None)
+                    st.rerun()
+
+            modal_editar_trabajador()
+
+                    
 # ======================================================
 # 6) PESTAÑA 🖨️ IMPRESIÓN (SELECCIÓN POR FILA)
 # ======================================================
@@ -274,6 +378,8 @@ if "🖨️ Impresión" in tabs:
             st.error("Error cargando trabajadores")
             st.stop()
         trabajadores = r.json()
+        # ORDENAR ASCENDENTE POR num_orden
+        trabajadores = sorted(trabajadores, key=lambda t: t["num_orden"])
         if not trabajadores:
             st.warning("No hay trabajadores registrados")
             st.stop()
