@@ -128,9 +128,9 @@ if st.sidebar.button("Cerrar sesión"):
 tabs = []
 
 if rol == "ROOT":
-    tabs = ["Usuarios", "Listar", "🖨️ Impresión", "👤 Trabajadores"]
+    tabs = ["Usuarios", "Listar", "🖨️ Impresión", "👤 Trabajadores", "🖨️ Impresoras"]
 elif rol == "SUPERVISOR":
-    tabs = ["Listar", "🖨️ Impresión", "👤 Trabajadores"]
+    tabs = ["Listar", "🖨️ Impresión", "👤 Trabajadores", "🖨️ Impresoras"]
 else:
     tabs = ["🖨️ Impresión"]
 
@@ -384,89 +384,88 @@ if "🖨️ Impresión" in tabs:
             st.warning("No hay trabajadores registrados")
             st.stop()
 
-        # --------------------------------------------------
-        # Buscador
-        # --------------------------------------------------
+            # --------------------------------------------------
+            # Buscador
+            # --------------------------------------------------
         busqueda = st.text_input(
-            "Buscar por DNI o nombre",
-            placeholder="Ejemplo: 40383794 o Anais"
-        ).strip().lower()
+                "Buscar por DNI o nombre",
+                placeholder="Ejemplo: 40383794 o Anais"
+            ).strip().lower()
 
         def coincide(t):
-            if not busqueda:
-                return True
-            return (
-                busqueda in (t.get("dni") or "").lower()
-                or busqueda in (t.get("nombre") or "").lower()
-                or busqueda in (t.get("apellido_paterno") or "").lower()
-                or busqueda in (t.get("apellido_materno") or "").lower()
-            )
+                if not busqueda:
+                    return True
+                return (
+                    busqueda in (t.get("dni") or "").lower()
+                    or busqueda in (t.get("nombre") or "").lower()
+                    or busqueda in (t.get("apellido_paterno") or "").lower()
+                    or busqueda in (t.get("apellido_materno") or "").lower()
+                )
 
         filtrados = [t for t in trabajadores if coincide(t)]
         if not filtrados:
-            st.warning("No se encontraron trabajadores")
-            st.stop()
+                st.warning("No se encontraron trabajadores")
+                st.stop()
 
-        # --------------------------------------------------
-        # Tabla seleccionable
-        # --------------------------------------------------
+            # --------------------------------------------------
+            # Tabla seleccionable
+            # --------------------------------------------------
         st.markdown("### Seleccione un trabajador")
         df = pd.DataFrame(filtrados)
 
-        # Checkbox
+            # Checkbox
         if "seleccionar" not in df.columns:
-            df.insert(0, "seleccionar", False)
+                df.insert(0, "seleccionar", False)
 
-        # SOLO columnas necesarias para impresión
+            # SOLO columnas necesarias para impresión
         df_impresion = df[COLUMNAS_IMPRESION]
 
         edited_df = st.data_editor(
-            df_impresion,
-            hide_index=True,
-            width="stretch",
-            disabled=[c for c in df_impresion.columns if c != "seleccionar"],
-            num_rows="fixed",
-            key="tabla_trabajadores_impresion"
-        )
-
+                df_impresion,
+                hide_index=True,
+                width="stretch",
+                disabled=[c for c in df_impresion.columns if c != "seleccionar"],
+                num_rows="fixed",
+                key="tabla_trabajadores_impresion"
+            )
 
         seleccionados = edited_df[edited_df["seleccionar"] == True]
 
         if seleccionados.empty:
-            st.info("Seleccione un trabajador marcando una sola fila")
-            st.stop()
+                st.info("Seleccione un trabajador marcando una sola fila")
+                st.stop()
 
         if len(seleccionados) > 1:
-            st.error("Solo se permite seleccionar un trabajador a la vez")
-            st.info("Desmarque las filas adicionales")
-            st.stop()
+                st.error("Solo se permite seleccionar un trabajador a la vez")
+                st.info("Desmarque las filas adicionales")
+                st.stop()
 
-      #  trabajador = seleccionados.iloc[0]
+        #  trabajador = seleccionados.iloc[0]
         fila_idx = seleccionados.index[0]
         trabajador = filtrados[fila_idx]
-      
+        
         trabajador_id = int(trabajador["id"])
         num_orden = str(trabajador["num_orden"])
         cod_letra = str(trabajador["cod_letra"])
 
         st.success(
-            f"Seleccionado: {trabajador['nombre']} "
-            f"({trabajador['dni']}) "
-            f"[{trabajador['num_orden']}-{trabajador['cod_letra']}]"
-        )
+                f"Seleccionado: {trabajador['nombre']} "
+                f"({trabajador['dni']}) "
+                f"[{trabajador['num_orden']}-{trabajador['cod_letra']}]"
+            )
 
         st.markdown("### Contenido visible en la etiqueta")
 
         opcion_mostrar = st.radio(
-            "¿Qué desea imprimir en el centro del QR?",
-            ["Número de orden", "Código de letra"],
-            horizontal=True
-        )
+                "¿Qué desea imprimir en el centro del QR?",
+                ["Número de orden", "Código de letra"],
+                horizontal=True
+            )
 
         if opcion_mostrar == "Número de orden":
-            valor_visible = num_orden
+                valor_visible = num_orden
         else:
-            valor_visible = cod_letra
+                valor_visible = cod_letra
 
         # --------------------------------------------------
         # Producto + impresión
@@ -478,27 +477,88 @@ if "🖨️ Impresión" in tabs:
         # --------------------------------------------------
         col_print = st.columns([1, 4])[0]
         with col_print:
-            cantidad = st.number_input("Cantidad de etiquetas",
-                min_value=1,
-                max_value=5000,
-                value=1,
-                step=1
+                cantidad = st.number_input("Cantidad de etiquetas",
+                    min_value=1,
+                    max_value=5000,
+                    value=1,
+                    step=1
+                )
+
+        if st.button("Vista previa "):
+                r = requests.post(
+                f"{API}/qr/print",
+                json={
+                    "dni": trabajador["dni"],
+                    "nn": valor_visible,
+                    "producto": producto,
+                    "cantidad": cantidad
+                }
             )
 
-        if st.button("Imprimir etiqueta"):
-            r = requests.post(
-            f"{API}/qr/print",
-            json={
-                "dni": trabajador["dni"],
-                "nn": valor_visible,
-                "producto": producto,
-                "cantidad": cantidad
-            }
-        )
-
-
-            if r.status_code == 200 and "image" in r.headers.get("content-type", ""):
-                st.image(r.content, caption="Etiqueta generada")
-            else:
+        if r.status_code == 200 and "image" in r.headers.get("content-type", ""):
+                st.image(r.content, caption="Etiqueta generada by Agricola del Sur Pisco")
+        else:
                 st.error("Error al generar la etiqueta")
                 st.code(r.text)
+
+                st.divider()
+
+if st.button("🖨️ Imprimir etiquetas"):
+    r = requests.post(
+        f"{API}/qr/print-zpl",
+        json={
+            "dni": trabajador["dni"],
+            "nn": valor_visible,
+            "producto": producto,
+            "cantidad": cantidad,
+            "impresora_id": st.session_state.get("impresora_activa")
+        }
+    )
+
+    if r.status_code == 200:
+        st.toast("Impresión enviada correctamente 🖨️", icon="✅")
+    else:
+        st.error("Error al imprimir")
+        st.code(r.text)
+# ======================================================
+# 6) PESTAÑA 🖨️ IMPRESORAS 
+# ======================================================
+if "🖨️ Impresoras" in tabs:
+    with tab_objs[tabs.index("🖨️ Impresoras")]:
+        st.subheader("Configuración de impresoras")
+
+        st.markdown("### Registrar impresora")
+        c1, c2, c3 = st.columns([2,1,1])
+        nombre_imp = c1.text_input("Nombre", key="imp_nombre")
+        marca = c2.selectbox("Marca", ["ZEBRA", "TSC"], key="imp_marca")
+        conexion = c3.selectbox("Conexión", ["RED", "USB"], key="imp_conexion")
+
+        c4, c5 = st.columns([2,1])
+        ip = c4.text_input("IP (o host)", key="imp_ip", placeholder="192.168.1.50")
+        puerto = c5.number_input("Puerto", min_value=1, max_value=65535, value=9100, step=1, key="imp_puerto")
+
+        if st.button("Guardar impresora", key="btn_guardar_imp"):
+            r = requests.post(f"{API}/impresoras", json={
+                "nombre": nombre_imp,
+                "marca": marca,
+                "conexion": conexion,
+                "ip": ip,
+                "puerto": int(puerto),
+            })
+            if r.status_code == 200:
+                st.toast("Impresora registrada ✅", icon="🖨️")
+                st.rerun()
+            else:
+                st.error(r.text)
+
+        st.divider()
+        st.markdown("### Impresoras activas")
+
+        r = requests.get(f"{API}/impresoras")
+        if r.status_code == 200:
+            st.dataframe(r.json(), width="stretch")
+        else:
+            st.error(r.text)
+
+
+

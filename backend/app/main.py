@@ -8,6 +8,7 @@ from app.api import (
     routes_session,
     routes_auth,
     routes_admin,
+    routes_impresoras,
 )
 
 
@@ -21,4 +22,6 @@ app.include_router(routes_qr.router, prefix="/qr")
 app.include_router(routes_users.router, prefix="/usuarios")
 app.include_router(routes_auth.router)
 app.include_router(routes_admin.router)
+app.include_router(routes_impresoras.router)
+
 

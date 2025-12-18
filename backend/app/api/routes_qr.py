@@ -55,3 +55,38 @@ def print_qr(data: dict):
     # 👉 por ahora devolvemos SOLO 1 imagen si cantidad = 1
     # 👉 si es >1 luego se empaqueta (ZIP / PDF / impresora)
     return StreamingResponse(images[0], media_type="image/png")
+
+    @router.post("/print-zpl")
+    def print_zpl(data: dict):
+        dni = data["dni"]
+        nn = data["nn"]
+        producto = data["producto"]
+        cantidad = int(data["cantidad"])
+        impresora_id = data["impresora_id"]
+
+        with SessionLocal() as db:
+            imp = db.execute(
+                text("SELECT * FROM impresoras WHERE id=:id AND activa=true"),
+                {"id": impresora_id}
+            ).mappings().first()
+
+            if not imp:
+                raise HTTPException(404, "Impresora no encontrada")
+
+        # -------------------------
+        # Generar ZPL
+        # -------------------------
+        zpl = generar_zpl_qr(
+            token=str(uuid.uuid4()),
+            dni=dni,
+            visible=nn,
+            producto=producto,
+            cantidad=cantidad
+        )
+
+        # -------------------------
+        # Enviar a impresora
+        # -------------------------
+        enviar_a_impresora(zpl, imp)
+
+        return {"ok": True}

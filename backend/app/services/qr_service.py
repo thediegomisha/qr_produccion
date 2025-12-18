@@ -96,10 +96,24 @@ def generar_qr_memoria(token: str, dni: str, numord: str, producto: str):
     )
 
     # ------------------------------------------------------------------
-    # 7) Retorno del QR en memoria (NO archivo, NO PDF)
+    # 7) REDUCCIÓN DE TAMAÑO (20% menos, sin alterar contenido)
+    # ------------------------------------------------------------------
+    scale = 0.4  # 🔹 reducir 60%
+
+    new_w = int(img.width * scale)
+    new_h = int(img.height * scale)
+
+    img = img.resize(
+        (new_w, new_h),
+        resample=Image.Resampling.LANCZOS  
+    )
+
+    # ------------------------------------------------------------------
+    # 8) Retorno del QR en memoria
     # ------------------------------------------------------------------
     buffer = io.BytesIO()
     img.save(buffer, format="PNG")
     buffer.seek(0)
 
     return buffer
+
