@@ -1,6 +1,28 @@
 import streamlit as st
+
+st.set_page_config(
+    page_title="Sistema de Etiquetas",
+    page_icon="logo_empresa.png",
+    layout="wide"
+)
+
 import requests
 import pandas as pd
+
+# ==============================
+# ESTADO DEL MODAL
+# ==============================
+if "show_dni_modal" not in st.session_state:
+    st.session_state.show_dni_modal = False
+    st.session_state.modal_message = ""
+
+if "reniec_ok" not in st.session_state:
+    st.session_state.reniec_ok = False
+
+if "last_dni_consultado" not in st.session_state:
+    st.session_state.last_dni_consultado = None
+
+
 
 API = "http://127.0.0.1:8000"
 
@@ -16,7 +38,7 @@ COLUMNAS_IMPRESION = [
     "apellido_materno",
 #    "rol",
     "num_orden",
-#x    "cod_letra",
+#    "cod_letra",
 ]
 
 COLUMNAS_LISTADO = [
@@ -83,34 +105,133 @@ if resp.status_code == 200 and not resp.json().get("initialized"):
     st.stop()
 
 # --------------------------------------------------
-# LOGIN
+# LOGIN (COLORES CORPORATIVOS DEL LOGO)
 # --------------------------------------------------
 if not st.session_state.auth:
-    st.set_page_config(page_title="Login - Sistema QR", layout="wide")
-    st.title("Ingreso al Sistema de Etiquetas")
 
-    usuario = st.text_input("Usuario", key="login username")
-    password = st.text_input("Contraseña", type="password", key="login password")
+    st.markdown("""
+    <style>
+    /* Fondo solo login */
+    .login-overlay {
+        position: fixed;
+        inset: 0;
+        background: linear-gradient(
+            135deg,
+            #e8f5e9 0%,
+            #f5f7f6 60%
+        );
+        z-index: -1;
+    }
 
-    if st.button("Ingresar"):
-        r = requests.post(
-            f"{API}/auth/login",
-            json={
-                "usuario": usuario,
-                "password": password
-            }
-        )
+    /* Modal */
+    .login-modal {
+        background: #ffffff;
+        padding: 2.8rem 2.5rem 2.3rem 2.5rem;
+        border-radius: 20px;
+        box-shadow: 0 25px 50px rgba(0,0,0,0.25);
+        border-top: 6px solid #2E7D32;
+    }
 
-        if r.status_code == 200:
-            st.session_state.auth = r.json()
-            st.success("Ingreso correcto")            
-            st.rerun()
-            st.session_state.pop("Usuario", None)
-            st.session_state.pop("Contraseña", None)
-        else:
-            st.error("Usuario o contraseña incorrectos")
+    /* Logo */
+    .login-logo {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 0.8rem;
+    }
+
+    /* Títulos */
+    .login-title {
+        text-align: center;
+        font-size: 1.65rem;
+        font-weight: 700;
+        color: #1B5E20;
+        margin-bottom: 0.2rem;
+    }
+
+    .login-subtitle {
+        text-align: center;
+        color: #6b7280;
+        font-size: 0.9rem;
+        margin-bottom: 2rem;
+    }
+
+    /* Inputs */
+    .login-modal input {
+        background-color: #f1f5f4;
+        border-radius: 10px !important;
+        border: 1px solid #c8e6c9;
+    }
+
+    .login-modal input:focus {
+        border-color: #2E7D32;
+        box-shadow: 0 0 0 1px #2E7D32;
+    }
+
+    /* Botón */
+    .login-modal .stButton > button {
+        width: 100%;
+        background: linear-gradient(
+            135deg,
+            #2E7D32,
+            #1B5E20
+        );
+        color: white;
+        font-weight: 600;
+        padding: 0.65rem;
+        border-radius: 12px;
+        border: none;
+        margin-top: 0.8rem;
+    }
+
+    .login-modal .stButton > button:hover {
+        background: linear-gradient(
+            135deg,
+            #1B5E20,
+            #2E7D32
+        );
+    }
+    </style>
+
+    <div class="login-overlay"></div>
+    """, unsafe_allow_html=True)
+
+    # CENTRADO NATIVO
+    col1, col2, col3 = st.columns([1, 1.2, 1])
+
+    with col2:
+        st.markdown("""
+        <div class="login-modal">
+            <div class="login-logo">
+                <img src="data:image/png;base64,LOGO_BASE64" width="95"/>
+            </div>
+            <div class="login-title">Sistema de Etiquetas</div>
+            <div class="login-subtitle">Agrícola del Sur Pisco</div>
+        """, unsafe_allow_html=True)
+
+        usuario = st.text_input("Usuario", key="login_username")
+        password = st.text_input("Contraseña", type="password", key="login_password")
+
+        if st.button("Ingresar"):
+            r = requests.post(
+                f"{API}/auth/login",
+                json={
+                    "usuario": usuario,
+                    "password": password
+                }
+            )
+
+            if r.status_code == 200:
+                st.session_state.auth = r.json()
+                st.success("Ingreso correcto")
+                st.rerun()
+            else:
+                st.error("Usuario o contraseña incorrectos")
+
+        st.markdown("</div>", unsafe_allow_html=True)
 
     st.stop()
+
+
 
 # --------------------------------------------------
 # MOSTRAR USUARIO ACTIVO Y CERRAR SESIÓN
@@ -203,25 +324,110 @@ if "Listar" in tabs:
 # ======================================================
 # 5) PESTAÑA TRABAJADORES (ALTA)
 # ======================================================
+def modal_error_dni_registrado(mensaje):
+    @st.dialog("⚠️ Registro no permitido")
+    def _modal():
+        st.error(mensaje)
+        st.markdown("El DNI ingresado ya existe en el sistema.")
+
+        if st.button("Aceptar"):
+            # Limpiar campos del formulario
+            for k in ("dni_trab", "nom_trab", "ap_pat", "ap_mat", "rol_trab"):
+                st.session_state.pop(k, None)
+
+            st.rerun()
+
+    _modal()
+
+def modal_dni_no_reniec(mensaje):
+    @st.dialog("⚠️ DNI no válido")
+    def _modal():
+        st.warning(mensaje)
+        st.markdown("El DNI no fue encontrado en RENIEC.")
+
+        if st.button("Aceptar", type="primary"):
+            # 🔑 LIMPIAR CAMPOS CLAVE
+            for k in ("dni_trab", "nom_trab", "ap_pat", "ap_mat"):
+                st.session_state.pop(k, None)
+
+            # 🔑 RESETEAR ESTADO RENIEC
+            st.session_state.reniec_ok = False
+
+            # 🔑 MUY IMPORTANTE: evitar re-disparo inmediato
+            st.session_state.pop("dni_trab", None)
+
+            st.rerun()
+
+    _modal()
+
+
+
+
 if "👤 Trabajadores" in tabs:
     with tab_objs[tabs.index("👤 Trabajadores")]:
         st.subheader("Alta de trabajador")
+
         col_dni, col_nom = st.columns([1,3])
         with col_dni:
             dni = st.text_input("DNI", max_chars=8, key="dni_trab")
+
+            # ==============================
+            # 🔍 VALIDACIÓN RENIEC
+            # ==============================
+            
+            # 🔁 Si el DNI cambia, resetear estado RENIEC
+            if dni != st.session_state.last_dni_consultado:
+                st.session_state.reniec_ok = False
+
+            # 🔍 Consultar RENIEC solo si:
+            # - DNI válido
+            # - no ha sido validado aún
+            if dni and len(dni) == 8 and dni.isdigit() and not st.session_state.reniec_ok:
+                with st.spinner("Consultando RENIEC..."):
+                    r_reniec = requests.get(f"{API}/reniec/dni/{dni}")
+
+                if r_reniec.status_code == 200:
+                    data = r_reniec.json()
+
+                    st.session_state.nom_trab = data["nombre"]
+                    st.session_state.ap_pat = data["apellido_paterno"]
+                    st.session_state.ap_mat = data["apellido_materno"]
+
+                    st.session_state.reniec_ok = True
+                    st.session_state.last_dni_consultado = dni
+
+                    st.toast("Datos obtenidos de RENIEC", icon="🪪")
+
+                elif r_reniec.status_code == 404:
+                    st.session_state.last_dni_consultado = None
+                    modal_dni_no_reniec("DNI no encontrado")
+
+                else:
+                    st.error("Error consultando RENIEC")
+
         with col_nom:
             nombre = st.text_input("Nombres", key="nom_trab")
-        col3, col4 = st.columns(2)  
+
+        col3, col4 = st.columns(2)
         with col3:
             apellido_paterno = st.text_input("Apellido paterno", key="ap_pat")
         with col4:
             apellido_materno = st.text_input("Apellido materno", key="ap_mat")
 
         col_rol, col_btn = st.columns([1, 1])
-        with col_rol:        
+        with col_rol:
             rol = st.selectbox("Rol", ["EMPACADORA", "SELECCIONADOR"], key="rol_trab")
 
+        # ==============================
+        # ➕ CREAR TRABAJADOR
+        # ==============================
         if st.button("Crear trabajador"):
+
+            # 🔒 OBLIGAR VALIDACIÓN RENIEC
+            if not st.session_state.reniec_ok:
+                st.warning("Debe validar el DNI con RENIEC antes de continuar")
+                st.stop()
+
             r = requests.post(
                 f"{API}/trabajadores",
                 json={
@@ -232,17 +438,24 @@ if "👤 Trabajadores" in tabs:
                     "rol": rol
                 }
             )
+
             if r.status_code == 200:
                 data = r.json()
-                st.toast(f"Trabajador creado → {nombre} {apellido_paterno} ({data['num_orden']}-{data['cod_letra']})",
-                icon="✅"
+                st.toast(
+                    f"Trabajador creado → {nombre} {apellido_paterno} "
+                    f"({data['num_orden']}-{data['cod_letra']})",
+                    icon="✅"
                 )
-                # -------------------------
-                # AUTO-LIMPIAR FORMULARIO
-                # -------------------------
+
+                # 🧹 LIMPIAR FORMULARIO
                 for k in ("dni_trab", "nom_trab", "ap_pat", "ap_mat", "rol_trab"):
                     st.session_state.pop(k, None)
 
+                st.session_state.reniec_ok = False
+                st.rerun()
+
+            elif r.status_code == 400 and "DNI ya registrado" in r.text:
+                modal_error_dni_registrado("DNI ya registrado")
 
             else:
                 st.error(r.text)
@@ -297,229 +510,286 @@ if "👤 Trabajadores" in tabs:
             key="tabla_trabajadores_editar"
         )
 
-        seleccionados = edited_df[edited_df["✏️"] == True]
+        # ------------------------------
+# Estado de edición (AGREGAR 1 VEZ antes, cerca de tus otros states)
+# ------------------------------
+if "edit_trabajador_id" not in st.session_state:
+    st.session_state.edit_trabajador_id = None
+if "show_edit_modal" not in st.session_state:
+    st.session_state.show_edit_modal = False
 
-        if len(seleccionados) == 1:
-            fila_idx = seleccionados.index[0]
+# ------------------------------
+# Selección desde data_editor
+# ------------------------------
+seleccionados = edited_df[edited_df["✏️"] == True]
 
-            # ⚠️ TOMAMOS EL REGISTRO ORIGINAL DEL BACKEND
-            tr = trabajadores[fila_idx]
+selected_id = None
+if len(seleccionados) == 1:
+    fila_idx = seleccionados.index[0]
+    tr = trabajadores[fila_idx]
+    selected_id = tr["id"]
 
-            st.session_state["editar_trabajador"] = tr
-            st.session_state["abrir_modal"] = True
-            st.session_state["modal_origen"] = "trabajadores"
+    # Abrir SOLO si cambió la selección (evita reapertura constante)
+    if st.session_state.edit_trabajador_id != selected_id:
+        st.session_state.edit_trabajador_id = selected_id
+        st.session_state.show_edit_modal = True
+
+# Si no hay selección, no mantener modal “pegado”
+if selected_id is None and st.session_state.show_edit_modal:
+    st.session_state.show_edit_modal = False
+    st.session_state.edit_trabajador_id = None
 
 
+# ------------------------------
+# MODAL DE EDICIÓN (solo si está activo)
+# ------------------------------
+if st.session_state.show_edit_modal and st.session_state.edit_trabajador_id:
 
-        # --------------------------------------------------
-        # MODAL DE EDICIÓN
-        # --------------------------------------------------
-        if (
-            st.session_state.get("abrir_modal")
-            and st.session_state.get("modal_origen") == "trabajadores"
-            and "👤 Trabajadores" in tabs
-        ):
+    tr = next(t for t in trabajadores if t["id"] == st.session_state.edit_trabajador_id)
 
-            tr = st.session_state["editar_trabajador"]
+    @st.dialog("Editar trabajador")
+    def modal_editar_trabajador():
+        # IMPORTANTE: el form necesita key única
+        with st.form(key=f"form_editar_trabajador_{tr['id']}"):
+            dni = st.text_input("DNI", value=tr["dni"], key=f"edit_dni_{tr['id']}")
+            nombre = st.text_input("Nombre", value=tr["nombre"], key=f"edit_nom_{tr['id']}")
+            ap_pat = st.text_input("Apellido paterno", value=tr["apellido_paterno"], key=f"edit_ap_pat_{tr['id']}")
+            ap_mat = st.text_input("Apellido materno", value=tr["apellido_materno"], key=f"edit_ap_mat_{tr['id']}")
+            rol = st.selectbox(
+                "Rol",
+                ["EMPACADORA", "SELECCIONADOR"],
+                index=["EMPACADORA", "SELECCIONADOR"].index(tr["rol"]),
+                key=f"edit_rol_{tr['id']}"
+            )
 
-            @st.dialog("Editar trabajador")
-            def modal_editar_trabajador():
-                with st.form("form_editar_trabajador"):
-                    dni = st.text_input("DNI", tr["dni"])
-                    nombre = st.text_input("Nombre", tr["nombre"])
-                    ap_pat = st.text_input("Apellido paterno", tr["apellido_paterno"])
-                    ap_mat = st.text_input("Apellido materno", tr["apellido_materno"])
-                    rol = st.selectbox(
-                        "Rol",
-                        ["EMPACADORA", "SELECCIONADOR"],
-                        index=["EMPACADORA", "SELECCIONADOR"].index(tr["rol"])
-                    )
+            c1, c2 = st.columns(2)
+            guardar = c1.form_submit_button("💾 Guardar")
+            cancelar = c2.form_submit_button("❌ Cancelar")
 
-                    col1, col2 = st.columns(2)
-                    guardar = col1.form_submit_button("💾 Guardar")
-                    cancelar = col2.form_submit_button("❌ Cancelar")
+        # ---- Guardar
+        if guardar:
+            r = requests.put(
+                f"{API}/trabajadores/{tr['id']}",
+                json={
+                    "dni": dni,
+                    "nombre": nombre,
+                    "apellido_paterno": ap_pat,
+                    "apellido_materno": ap_mat,
+                    "rol": rol
+                }
+            )
 
-                if guardar:
-                    r = requests.put(
-                        f"{API}/trabajadores/{tr['id']}",
-                        json={
-                            "dni": dni,
-                            "nombre": nombre,
-                            "apellido_paterno": ap_pat,
-                            "apellido_materno": ap_mat,
-                            "rol": rol
-                        }
-                    )
+            if r.status_code == 200:
+                st.success("Trabajador actualizado correctamente")
 
-                    if r.status_code == 200:
-                        st.success("Trabajador actualizado correctamente")
-                        st.session_state.pop("editar_trabajador", None)
-                        st.session_state.pop("abrir_modal", None)
-                        st.rerun()
-                    else:
-                        st.error(r.text)
+                # Cerrar modal
+                st.session_state.show_edit_modal = False
+                st.session_state.edit_trabajador_id = None
 
-                if cancelar:
-                    st.session_state.pop("editar_trabajador", None)
-                    st.session_state.pop("abrir_modal", None)
-                    st.rerun()
+                # 🔑 Limpiar estado del data_editor para desmarcar ✏️
+                st.session_state.pop("tabla_trabajadores_editar", None)
 
-            modal_editar_trabajador()
+                st.rerun()
+            else:
+                st.error(r.text)
+
+        # ---- Cancelar
+        if cancelar:
+            # Cerrar modal
+            st.session_state.show_edit_modal = False
+            st.session_state.edit_trabajador_id = None
+
+            # 🔑 Limpiar estado del data_editor para desmarcar ✏️
+            st.session_state.pop("tabla_trabajadores_editar", None)
+
+            st.rerun()
+
+    modal_editar_trabajador()
+
 
                     
 # ======================================================
 # 6) PESTAÑA 🖨️ IMPRESIÓN (SELECCIÓN POR FILA)
 # ======================================================
-if "🖨️ Impresión" in tabs:
-    with tab_objs[tabs.index("🖨️ Impresión")]:
-        st.subheader("Impresión de etiquetas")
-        r = requests.get(f"{API}/trabajadores?activos=true")
-        if r.status_code != 200:
-            st.error("Error cargando trabajadores")
-            st.stop()
-        trabajadores = r.json()
-        # ORDENAR ASCENDENTE POR num_orden
-        trabajadores = sorted(trabajadores, key=lambda t: t["num_orden"])
-        if not trabajadores:
-            st.warning("No hay trabajadores registrados")
-            st.stop()
+def generar_vista_previa():
+    trabajador = st.session_state.get("trabajador_seleccionado")
+    if not trabajador:
+        return
 
-            # --------------------------------------------------
-            # Buscador
-            # --------------------------------------------------
-        busqueda = st.text_input(
-                "Buscar por DNI o nombre",
-                placeholder="Ejemplo: 40383794 o Anais"
-            ).strip().lower()
+    opcion = st.session_state.get("opcion_mostrar")
+    producto = st.session_state.get("producto")
+    cantidad = st.session_state.get("cantidad")
 
-        def coincide(t):
-                if not busqueda:
-                    return True
-                return (
-                    busqueda in (t.get("dni") or "").lower()
-                    or busqueda in (t.get("nombre") or "").lower()
-                    or busqueda in (t.get("apellido_paterno") or "").lower()
-                    or busqueda in (t.get("apellido_materno") or "").lower()
-                )
+    valor_visible = (
+        trabajador["num_orden"]
+        if opcion == "Número de orden"
+        else trabajador["cod_letra"]
+    )
 
-        filtrados = [t for t in trabajadores if coincide(t)]
-        if not filtrados:
-                st.warning("No se encontraron trabajadores")
-                st.stop()
-
-            # --------------------------------------------------
-            # Tabla seleccionable
-            # --------------------------------------------------
-        st.markdown("### Seleccione un trabajador")
-        df = pd.DataFrame(filtrados)
-
-            # Checkbox
-        if "seleccionar" not in df.columns:
-                df.insert(0, "seleccionar", False)
-
-            # SOLO columnas necesarias para impresión
-        df_impresion = df[COLUMNAS_IMPRESION]
-
-        edited_df = st.data_editor(
-                df_impresion,
-                hide_index=True,
-                width="stretch",
-                disabled=[c for c in df_impresion.columns if c != "seleccionar"],
-                num_rows="fixed",
-                key="tabla_trabajadores_impresion"
-            )
-
-        seleccionados = edited_df[edited_df["seleccionar"] == True]
-
-        if seleccionados.empty:
-                st.info("Seleccione un trabajador marcando una sola fila")
-                st.stop()
-
-        if len(seleccionados) > 1:
-                st.error("Solo se permite seleccionar un trabajador a la vez")
-                st.info("Desmarque las filas adicionales")
-                st.stop()
-
-        #  trabajador = seleccionados.iloc[0]
-        fila_idx = seleccionados.index[0]
-        trabajador = filtrados[fila_idx]
-        
-        trabajador_id = int(trabajador["id"])
-        num_orden = str(trabajador["num_orden"])
-        cod_letra = str(trabajador["cod_letra"])
-
-        st.success(
-                f"Seleccionado: {trabajador['nombre']} "
-                f"({trabajador['dni']}) "
-                f"[{trabajador['num_orden']}-{trabajador['cod_letra']}]"
-            )
-
-        st.markdown("### Contenido visible en la etiqueta")
-
-        opcion_mostrar = st.radio(
-                "¿Qué desea imprimir en el centro del QR?",
-                ["Número de orden", "Código de letra"],
-                horizontal=True
-            )
-
-        if opcion_mostrar == "Número de orden":
-                valor_visible = num_orden
-        else:
-                valor_visible = cod_letra
-
-        # --------------------------------------------------
-        # Producto + impresión
-        # --------------------------------------------------
-        producto = st.selectbox("Producto", ["UVA"])
-
-        # --------------------------------------------------
-        # CANTIDAD DE ETIQUETAS
-        # --------------------------------------------------
-        col_print = st.columns([1, 4])[0]
-        with col_print:
-                cantidad = st.number_input("Cantidad de etiquetas",
-                    min_value=1,
-                    max_value=5000,
-                    value=1,
-                    step=1
-                )
-
-        if st.button("Vista previa "):
-                r = requests.post(
-                f"{API}/qr/print",
-                json={
-                    "dni": trabajador["dni"],
-                    "nn": valor_visible,
-                    "producto": producto,
-                    "cantidad": cantidad
-                }
-            )
-
-        if r.status_code == 200 and "image" in r.headers.get("content-type", ""):
-                st.image(r.content, caption="Etiqueta generada by Agricola del Sur Pisco")
-        else:
-                st.error("Error al generar la etiqueta")
-                st.code(r.text)
-
-                st.divider()
-
-if st.button("🖨️ Imprimir etiquetas"):
     r = requests.post(
-        f"{API}/qr/print-zpl",
+        f"{API}/qr/print",
         json={
             "dni": trabajador["dni"],
             "nn": valor_visible,
             "producto": producto,
-            "cantidad": cantidad,
-            "impresora_id": st.session_state.get("impresora_activa")
+            "cantidad": cantidad
         }
     )
 
-    if r.status_code == 200:
-        st.toast("Impresión enviada correctamente 🖨️", icon="✅")
+    if r.status_code == 200 and "image" in r.headers.get("content-type", ""):
+        st.session_state.preview_img = r.content
+        st.session_state.preview_error = None
     else:
-        st.error("Error al imprimir")
-        st.code(r.text)
+        st.session_state.preview_img = None
+        st.session_state.preview_error = r.text
+
+
+if "🖨️ Impresión" in tabs:
+    with tab_objs[tabs.index("🖨️ Impresión")]:
+        st.subheader("Impresión de etiquetas")
+
+        # ==============================
+        # OBTENER TRABAJADORES
+        # ==============================
+        r = requests.get(f"{API}/trabajadores?activos=true")
+        if r.status_code != 200:
+            st.error("Error cargando trabajadores")
+            st.stop()
+
+        trabajadores = sorted(r.json(), key=lambda t: t["num_orden"])
+
+        if not trabajadores:
+            st.warning("No hay trabajadores registrados")
+            st.stop()
+
+        # ==============================
+        # BUSCADOR
+        # ==============================
+        busqueda = st.text_input(
+            "Buscar por DNI o nombre",
+            placeholder="Ejemplo: 40383794 o Anais"
+        ).strip().lower()
+
+        def coincide(t):
+            if not busqueda:
+                return True
+            return (
+                busqueda in (t.get("dni") or "").lower()
+                or busqueda in (t.get("nombre") or "").lower()
+                or busqueda in (t.get("apellido_paterno") or "").lower()
+                or busqueda in (t.get("apellido_materno") or "").lower()
+            )
+
+        filtrados = [t for t in trabajadores if coincide(t)]
+
+        if not filtrados:
+            st.warning("No se encontraron trabajadores")
+            st.stop()
+
+        # ==============================
+        # TABLA SELECCIONABLE
+        # ==============================
+        st.markdown("### Seleccione un trabajador")
+
+        df = pd.DataFrame(filtrados)
+
+        if "seleccionar" not in df.columns:
+            df.insert(0, "seleccionar", False)
+
+        df_impresion = df[COLUMNAS_IMPRESION]
+
+        edited_df = st.data_editor(
+            df_impresion,
+            hide_index=True,
+            disabled=[c for c in df_impresion.columns if c != "seleccionar"],
+            num_rows="fixed",
+            key="tabla_trabajadores_impresion"
+        )
+
+        seleccionados = edited_df[edited_df["seleccionar"] == True]
+
+        if len(seleccionados) != 1:
+            st.info("Seleccione un solo trabajador")
+            st.stop()
+
+        fila_idx = seleccionados.index[0]
+        trabajador = filtrados[fila_idx]
+
+        # 👉 GUARDAR TRABAJADOR SELECCIONADO
+        st.session_state.trabajador_seleccionado = trabajador
+
+        # ==============================
+        # OPCIONES DE ETIQUETA
+        # ==============================
+        st.markdown("### Contenido visible en la etiqueta")
+
+        st.radio(
+            "¿Qué desea imprimir en el centro del QR?",
+            ["Número de orden", "Código de letra"],
+            horizontal=True,
+            key="opcion_mostrar",
+            on_change=generar_vista_previa
+        )
+
+        col_prod, col_cant, _ = st.columns([1.2, 0.6, 3])
+
+        with col_prod:
+            st.selectbox(
+                "Producto",
+                ["UVA"],
+                key="producto",
+                on_change=generar_vista_previa
+            )
+
+        with col_cant:
+            st.number_input(
+                "Cantidad de etiquetas",
+                min_value=1,
+                max_value=5000,
+                value=1,
+                step=1,
+                key="cantidad",
+                on_change=generar_vista_previa
+            )
+
+
+        # 👉 GENERAR PREVIEW AUTOMÁTICO AL SELECCIONAR TRABAJADOR
+        generar_vista_previa()
+
+        # ==============================
+        # MOSTRAR VISTA PREVIA
+        # ==============================
+        if st.session_state.get("preview_img"):
+            st.image(
+                st.session_state.preview_img,
+                caption="Generated by Agricola del Sur Pisco EIRL",
+            )
+
+        if st.session_state.get("preview_error"):
+            st.error("Error al generar la vista previa")
+
+        if st.button("🖨️ Imprimir etiquetas"):
+            r = requests.post(
+                f"{API}/qr/print-zpl",
+                json={
+                    "dni": trabajador["dni"],
+                    "nn": (
+                        trabajador["num_orden"]
+                        if st.session_state.opcion_mostrar == "Número de orden"
+                        else trabajador["cod_letra"]
+                    ),
+                    "producto": st.session_state.producto,
+                    "cantidad": st.session_state.cantidad,
+                    "impresora_id": st.session_state.get("impresora_activa")
+                }
+            )
+
+            if r.status_code == 200:
+                st.toast("Impresión enviada correctamente 🖨️", icon="✅")
+            else:
+                st.error("Error al imprimir")
+
+
 # ======================================================
 # 6) PESTAÑA 🖨️ IMPRESORAS 
 # ======================================================
@@ -559,6 +829,7 @@ if "🖨️ Impresoras" in tabs:
             st.dataframe(r.json(), width="stretch")
         else:
             st.error(r.text)
+
 
 
 

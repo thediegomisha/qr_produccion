@@ -1,3 +1,9 @@
+from dotenv import load_dotenv
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
+
 from fastapi import FastAPI
 from app.db.base import init_db
 from app.api import (
@@ -9,7 +15,10 @@ from app.api import (
     routes_auth,
     routes_admin,
     routes_impresoras,
+    routes_reniec,
 )
+
+
 
 
 app = FastAPI(title="QR Producción")
@@ -23,5 +32,6 @@ app.include_router(routes_users.router, prefix="/usuarios")
 app.include_router(routes_auth.router)
 app.include_router(routes_admin.router)
 app.include_router(routes_impresoras.router)
+app.include_router(routes_reniec.router)
 
 

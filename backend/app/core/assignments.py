@@ -4,7 +4,7 @@ def next_num_orden(db):
     usados = set(
         r[0] for r in db.execute(text("SELECT num_orden FROM trabajadores")).all()
     )
-    for i in range(1, 100):
+    for i in range(1, 1000):
         v = f"{i:03d}"
         if v not in usados:
             return v
