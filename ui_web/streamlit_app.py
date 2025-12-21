@@ -305,12 +305,16 @@ if "Usuarios" in tabs:
 # ======================================================
 if "Listar" in tabs:
     with tab_objs[tabs.index("Listar")]:
-        st.subheader("Listado de trabajadores activos")
+        
         r = requests.get(f"{API}/trabajadores?activos=true")
         if r.status_code == 200:
             trabajadores = r.json()
             # ORDENAR ASCENDENTE POR num_orden
             trabajadores = sorted(trabajadores, key=lambda t: t["num_orden"])
+            total_trabajadores = len(trabajadores)
+
+            st.subheader(f"Listado de trabajadores activos ({total_trabajadores})")
+
             if trabajadores:
                 df = pd.DataFrame(trabajadores)
                 df_listado = df[COLUMNAS_LISTADO]
@@ -463,8 +467,7 @@ if "👤 Trabajadores" in tabs:
             st.divider()
         
                 
-            st.subheader("Trabajadores activos")
-
+            
         r = requests.get(f"{API}/trabajadores?activos=true")
         if r.status_code != 200:
             st.error("Error cargando trabajadores")
@@ -473,13 +476,15 @@ if "👤 Trabajadores" in tabs:
         trabajadores = r.json()
         # ORDENAR ASCENDENTE POR num_orden
         trabajadores = sorted(trabajadores, key=lambda t: t["num_orden"])
+        total_trabajadores = len(trabajadores)
+
         if not trabajadores:
             st.info("No hay trabajadores registrados")
             st.stop()
 
         df = pd.DataFrame(trabajadores)
 
-        st.markdown("### Lista de trabajadores")
+        st.subheader(f"Listado de trabajadores activos ({total_trabajadores})")
 
         # --------------------------------------------------
         # TABLA CON ENCABEZADOS + ORDEN + ✏️
@@ -657,6 +662,9 @@ if "🖨️ Impresión" in tabs:
             st.stop()
 
         trabajadores = sorted(r.json(), key=lambda t: t["num_orden"])
+        total_trabajadores = len(trabajadores)
+
+        st.metric("👥 Trabajadores activos", total_trabajadores)
 
         if not trabajadores:
             st.warning("No hay trabajadores registrados")
