@@ -423,7 +423,7 @@ if "👤 Trabajadores" in tabs:
             rol = st.selectbox("Rol", ["EMPACADORA", "SELECCIONADOR"], key="rol_trab")
 
         # ==============================
-        # ➕ CREAR TRABAJADOR
+        #  CREAR TRABAJADOR
         # ==============================
         if st.button("Crear trabajador"):
 
@@ -651,6 +651,7 @@ def generar_vista_previa():
 
 if "🖨️ Impresión" in tabs:
     with tab_objs[tabs.index("🖨️ Impresión")]:
+        
         st.subheader("Impresión de etiquetas")
 
         # ==============================
@@ -761,7 +762,6 @@ if "🖨️ Impresión" in tabs:
             )
 
 
-        # 👉 GENERAR PREVIEW AUTOMÁTICO AL SELECCIONAR TRABAJADOR
         generar_vista_previa()
 
         # ==============================
@@ -788,7 +788,6 @@ if "🖨️ Impresión" in tabs:
                     ),
                     "producto": st.session_state.producto,
                     "cantidad": st.session_state.cantidad,
-                    "impresora_id": st.session_state.get("impresora_activa")
                 }
             )
 
@@ -796,8 +795,16 @@ if "🖨️ Impresión" in tabs:
                 st.toast("Impresión enviada correctamente 🖨️", icon="✅")
             else:
                 st.error("Error al imprimir")
-
-
+                
+                # 🧹 limpiar estado
+                for k in (
+                    "tabla_trabajadores_impresion",
+                    "trabajador_seleccionado",
+                    "preview_img",
+                    "preview_error"
+                ):
+                    st.session_state.pop(k, None)
+       
 # ======================================================
 # 6) PESTAÑA 🖨️ IMPRESORAS 
 # ======================================================

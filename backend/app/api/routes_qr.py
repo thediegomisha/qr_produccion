@@ -1,21 +1,26 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
-from datetime import datetime
-from app.core.tokens import generar_token
+
 from app.core.session import get_usuario
+from app.core.tokens import generar_token
 from app.services.qr_service import generar_qr_memoria
+from app.services.zpl_service import generar_zpl_qr
+from app.services.agent_client import enviar_job_agente
+
 from app.db.base import SessionLocal
 from app.db.models import QREmitido
 
-router = APIRouter()
+router = APIRouter(tags=["QR"])
 
 
+# ==========================================================
+# GENERAR QR (PNG) – NO IMPRIME
+# ==========================================================
 @router.post("/print")
-def print_qr(data: dict):
-    usuario = get_usuario()
-    if not usuario:
-        raise HTTPException(401, "Usuario no autenticado")
-
+def print_qr(
+    data: dict,
+    usuario: str = Depends(get_usuario)
+):
     # ----------------------------
     # Validación mínima
     # ----------------------------
@@ -52,41 +57,39 @@ def print_qr(data: dict):
 
         db.commit()
 
-    # 👉 por ahora devolvemos SOLO 1 imagen si cantidad = 1
-    # 👉 si es >1 luego se empaqueta (ZIP / PDF / impresora)
+    # Por ahora devolvemos solo una imagen
     return StreamingResponse(images[0], media_type="image/png")
 
-    @router.post("/print-zpl")
-    def print_zpl(data: dict):
-        dni = data["dni"]
-        nn = data["nn"]
-        producto = data["producto"]
-        cantidad = int(data["cantidad"])
-        impresora_id = data["impresora_id"]
 
-        with SessionLocal() as db:
-            imp = db.execute(
-                text("SELECT * FROM impresoras WHERE id=:id AND activa=true"),
-                {"id": impresora_id}
-            ).mappings().first()
+# ==========================================================
+# IMPRIMIR QR (ZPL) – USA PRINT AGENT (COLA)
+# ==========================================================
+@router.post("/print-zpl")
+def print_zpl(
+    data: dict,
+    usuario: str = Depends(get_usuario)
+):
+    required = ["dni", "nn", "producto", "cantidad"]
+    if not all(k in data for k in required):
+        raise HTTPException(400, "Datos incompletos")
 
-            if not imp:
-                raise HTTPException(404, "Impresora no encontrada")
+    zpl = generar_zpl_qr(
+        token=data["nn"],
+        dni=data["dni"],
+        visible=data["nn"],
+        producto=data["producto"],
+        cantidad=int(data["cantidad"])
+    )
 
-        # -------------------------
-        # Generar ZPL
-        # -------------------------
-        zpl = generar_zpl_qr(
-            token=str(uuid.uuid4()),
-            dni=dni,
-            visible=nn,
-            producto=producto,
-            cantidad=cantidad
-        )
+    job = enviar_job_agente(
+        agent_id=IMPRESORA_ACTIVA["agent_id"],
+        printer=IMPRESORA_ACTIVA["printer"],
+        raw=zpl
+    )
 
-        # -------------------------
-        # Enviar a impresora
-        # -------------------------
-        enviar_a_impresora(zpl, imp)
+    return {
+        "ok": True,
+        "job_id": job["job_id"],
+        "enviado_por": usuario
+    }
 
-        return {"ok": True}
