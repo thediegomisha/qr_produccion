@@ -10,3 +10,10 @@ DATABASE_URL = (
 )
 
 SECRET_KEY = b"JUANDIEGOALEXANDER-DOMINICKMIKHAIK-ANDREAANAIS"
+# ==============================
+# Configuración de impresión
+# ==============================
+IMPRESORA_ACTIVA = {
+    "agent_id": "agent-001",
+    "printer": "ZEBRA_1"
+}

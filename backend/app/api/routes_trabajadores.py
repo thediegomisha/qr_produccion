@@ -3,6 +3,8 @@ from sqlalchemy import text
 from app.db.base import SessionLocal
 from app.core.assignments import next_num_orden, next_cod_letra
 from app.core.session import get_rol
+from sqlalchemy.exc import IntegrityError
+
 
 
 router = APIRouter()
@@ -83,41 +85,50 @@ def crear_trabajador(data: dict):
         if existe:
             raise HTTPException(status_code=409, detail="DNI ya registrado")
 
-        # Asignación automática
-        num_orden = next_num_orden(db)
-        cod_letra = next_cod_letra(db)
+       # Asignación automática
+        try:
+            num_orden = next_num_orden(db)
+            cod_letra = next_cod_letra(db)
+        except ValueError as e:
+            # 409 = conflicto por falta de disponibilidad
+            raise HTTPException(status_code=409, detail=str(e))
+        
+        try:
 
-        db.execute(
-            text(""" INSERT INTO trabajadores (
-                    dni,
-                    nombre,
-                    apellido_paterno,
-                    apellido_materno,
-                    rol,
-                    num_orden,
-                    cod_letra,
-                    activo )
-                VALUES (
-                    :dni,
-                    :nombre,
-                    :ap_paterno,
-                    :ap_materno,
-                    :rol,
-                    :num_orden,
-                    :cod_letra,
-                    true ) """),
-            {
-                "dni": dni,
-                "nombre": nombre,
-                "ap_paterno": apellido_paterno,
-                "ap_materno": apellido_materno,
-                "rol": rol,
-                "num_orden": num_orden,
-                "cod_letra": cod_letra
-            }
+            db.execute(
+                text(""" INSERT INTO trabajadores (
+                        dni,
+                        nombre,
+                        apellido_paterno,
+                        apellido_materno,
+                        rol,
+                        num_orden,
+                        cod_letra,
+                        activo )
+                    VALUES (
+                        :dni,
+                        :nombre,
+                        :ap_paterno,
+                        :ap_materno,
+                        :rol,
+                        :num_orden,
+                        :cod_letra,
+                        true ) """),
+                {
+                    "dni": dni,
+                    "nombre": nombre,
+                    "ap_paterno": apellido_paterno,
+                    "ap_materno": apellido_materno,
+                    "rol": rol,
+                    "num_orden": num_orden,
+                    "cod_letra": cod_letra
+                }
         )
 
-        db.commit()
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="Conflicto: códigos ya asignados. Intente nuevamente.")
 
     return {
         "ok": True,
@@ -154,7 +165,9 @@ def actualizar_trabajador(trabajador_id: int, data: dict):
         raise HTTPException(400, "Apellido paterno obligatorio")
 
     if rol not in ("EMPACADORA", "SELECCIONADOR"):
-        raise HTTPException(400, "Rol inválido")
+        raise HTTPException(
+        detail="Rol inválido. Solo se permite: EMPACADORA o SELECCIONADOR."
+    )
 
     with SessionLocal() as db:
 

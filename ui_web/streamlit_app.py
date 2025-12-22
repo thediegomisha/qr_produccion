@@ -632,7 +632,7 @@ def generar_vista_previa():
     )
 
     r = requests.post(
-        f"{API}/qr/print",
+        f"{API}/qr/preview",
         json={
             "dni": trabajador["dni"],
             "nn": valor_visible,
@@ -778,7 +778,7 @@ if "🖨️ Impresión" in tabs:
 
         if st.button("🖨️ Imprimir etiquetas"):
             r = requests.post(
-                f"{API}/qr/print-zpl",
+                f"{API}/qr/print",
                 json={
                     "dni": trabajador["dni"],
                     "nn": (

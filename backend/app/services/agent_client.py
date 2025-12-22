@@ -21,7 +21,7 @@ def agent_printers(agent_id: str):
     r.raise_for_status()
     return r.json()
 
-def enviar_job_agente(agent_id: str, printer: str, raw: str):
+def enviar_job_agente(agent_id: str, printer: str, raw: str, copies: int = 1):
     a = get_agent(agent_id)
     r = requests.post(
         f'{a["base_url"]}/jobs',
