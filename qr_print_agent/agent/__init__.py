@@ -10,3 +10,6 @@ else:
     raise RuntimeError("Sistema operativo no soportado")
 
 printer_provider = Provider()
+
+def list_printers():
+    return printer_provider.list_printers()
