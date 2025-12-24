@@ -9,7 +9,7 @@ from requests.exceptions import RequestException, Timeout
 logger = logging.getLogger(__name__)
 
 # Cargar token y lista de agentes desde variables de entorno de forma segura
-TOKEN = os.getenv("PRINT_AGENT_TOKEN")
+TOKEN = os.getenv("AGENT_TOKEN")
 _agents_raw = os.getenv("PRINT_AGENTS_JSON", "[]")
 try:
     AGENTS: List[Dict[str, Any]] = json.loads(_agents_raw) if _agents_raw else []
