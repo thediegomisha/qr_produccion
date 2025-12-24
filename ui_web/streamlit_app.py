@@ -1,3 +1,4 @@
+from printers_panel import show_printers_panel
 import streamlit as st
 
 st.set_page_config(
@@ -471,51 +472,51 @@ if "👤 Trabajadores" in tabs:
         r = requests.get(f"{API}/trabajadores?activos=true")
         if r.status_code != 200:
             st.error("Error cargando trabajadores")
-            st.stop()
+           # st.stop()
+        else:
+            trabajadores = r.json()
+            # ORDENAR ASCENDENTE POR num_orden
+            trabajadores = sorted(trabajadores, key=lambda t: t["num_orden"])
+            total_trabajadores = len(trabajadores)
 
-        trabajadores = r.json()
-        # ORDENAR ASCENDENTE POR num_orden
-        trabajadores = sorted(trabajadores, key=lambda t: t["num_orden"])
-        total_trabajadores = len(trabajadores)
+            if not trabajadores:
+                st.info("No hay trabajadores registrados")
+            # st.stop()
+            else:
+                df = pd.DataFrame(trabajadores)
 
-        if not trabajadores:
-            st.info("No hay trabajadores registrados")
-            st.stop()
+                st.subheader(f"Listado de trabajadores activos ({total_trabajadores})")
 
-        df = pd.DataFrame(trabajadores)
+                # --------------------------------------------------
+                # TABLA CON ENCABEZADOS + ORDEN + ✏️
+                # --------------------------------------------------
+                df_ui = df.copy()
 
-        st.subheader(f"Listado de trabajadores activos ({total_trabajadores})")
+                # Columna acción
+                df_ui["✏️"] = False
 
-        # --------------------------------------------------
-        # TABLA CON ENCABEZADOS + ORDEN + ✏️
-        # --------------------------------------------------
-        df_ui = df.copy()
+                # Columnas visibles (id NO se muestra, pero se mantiene en df_ui)
+                columnas_ui = [
+                    "✏️",
+                    "dni",
+                    "nombre",
+                    "apellido_paterno",
+                    "apellido_materno",
+                    "rol",
+                    "num_orden",
+                    "cod_letra",
+                ]
 
-        # Columna acción
-        df_ui["✏️"] = False
+                edited_df = st.data_editor(
+                    df_ui[columnas_ui],
+                    hide_index=True,
+                    num_rows="fixed",
+                    disabled=[c for c in columnas_ui if c != "✏️"],
+                    width='content',
+                    key="tabla_trabajadores_editar"
+                )
 
-        # Columnas visibles (id NO se muestra, pero se mantiene en df_ui)
-        columnas_ui = [
-            "✏️",
-            "dni",
-            "nombre",
-            "apellido_paterno",
-            "apellido_materno",
-            "rol",
-            "num_orden",
-            "cod_letra",
-        ]
-
-        edited_df = st.data_editor(
-            df_ui[columnas_ui],
-            hide_index=True,
-            num_rows="fixed",
-            disabled=[c for c in columnas_ui if c != "✏️"],
-            use_container_width=True,
-            key="tabla_trabajadores_editar"
-        )
-
-        # ------------------------------
+# ------------------------------
 # Estado de edición (AGREGAR 1 VEZ antes, cerca de tus otros states)
 # ------------------------------
 if "edit_trabajador_id" not in st.session_state:
@@ -619,6 +620,8 @@ if st.session_state.show_edit_modal and st.session_state.edit_trabajador_id:
 def generar_vista_previa():
     trabajador = st.session_state.get("trabajador_seleccionado")
     if not trabajador:
+        st.session_state.preview_img = None
+        st.session_state.preview_error = None
         return
 
     opcion = st.session_state.get("opcion_mostrar")
@@ -630,16 +633,23 @@ def generar_vista_previa():
         if opcion == "Número de orden"
         else trabajador["cod_letra"]
     )
+    try:
 
-    r = requests.post(
-        f"{API}/qr/preview",
-        json={
-            "dni": trabajador["dni"],
-            "nn": valor_visible,
-            "producto": producto,
-            "cantidad": cantidad
-        }
-    )
+        r = requests.post(
+            f"{API}/qr/preview",
+            json={
+                "dni": trabajador["dni"],
+                "nn": valor_visible,
+                "producto": producto,
+                "cantidad": cantidad
+            },
+            timeout=10
+        )
+    except Exception as e:
+        # error de red: limpiar preview y guardar error
+        st.session_state.preview_img = None
+        st.session_state.preview_error = str(e)
+        return
 
     if r.status_code == 200 and "image" in r.headers.get("content-type", ""):
         st.session_state.preview_img = r.content
@@ -660,72 +670,76 @@ if "🖨️ Impresión" in tabs:
         r = requests.get(f"{API}/trabajadores?activos=true")
         if r.status_code != 200:
             st.error("Error cargando trabajadores")
-            st.stop()
+        #  st.stop()
+        else:
+            trabajadores = sorted(r.json(), key=lambda t: t["num_orden"])
+            total_trabajadores = len(trabajadores)
 
-        trabajadores = sorted(r.json(), key=lambda t: t["num_orden"])
-        total_trabajadores = len(trabajadores)
+            st.metric("👥 Trabajadores activos", total_trabajadores)
 
-        st.metric("👥 Trabajadores activos", total_trabajadores)
-
-        if not trabajadores:
-            st.warning("No hay trabajadores registrados")
-            st.stop()
+            if not trabajadores:
+                st.warning("No hay trabajadores registrados")
+           # st.stop()
+            else:
 
         # ==============================
         # BUSCADOR
         # ==============================
-        busqueda = st.text_input(
-            "Buscar por DNI o nombre",
-            placeholder="Ejemplo: 40383794 o Anais"
-        ).strip().lower()
+                busqueda = st.text_input(
+                    "Buscar por DNI o nombre",
+                    placeholder="Ejemplo: 40383794 o Anais"
+                ).strip().lower()
 
-        def coincide(t):
-            if not busqueda:
-                return True
-            return (
-                busqueda in (t.get("dni") or "").lower()
-                or busqueda in (t.get("nombre") or "").lower()
-                or busqueda in (t.get("apellido_paterno") or "").lower()
-                or busqueda in (t.get("apellido_materno") or "").lower()
-            )
+                def coincide(t):
+                    if not busqueda:
+                        return True
+                    return (
+                        busqueda in (t.get("dni") or "").lower()
+                        or busqueda in (t.get("nombre") or "").lower()
+                        or busqueda in (t.get("apellido_paterno") or "").lower()
+                        or busqueda in (t.get("apellido_materno") or "").lower()
+                    )
 
         filtrados = [t for t in trabajadores if coincide(t)]
 
         if not filtrados:
             st.warning("No se encontraron trabajadores")
-            st.stop()
+         #   st.stop()
+        else:
 
         # ==============================
         # TABLA SELECCIONABLE
         # ==============================
-        st.markdown("### Seleccione un trabajador")
+            st.markdown("### Seleccione un trabajador")
 
-        df = pd.DataFrame(filtrados)
+            df = pd.DataFrame(filtrados)
 
-        if "seleccionar" not in df.columns:
-            df.insert(0, "seleccionar", False)
+            if "seleccionar" not in df.columns:
+                df.insert(0, "seleccionar", False)
 
-        df_impresion = df[COLUMNAS_IMPRESION]
+            df_impresion = df[COLUMNAS_IMPRESION]
 
-        edited_df = st.data_editor(
-            df_impresion,
-            hide_index=True,
-            disabled=[c for c in df_impresion.columns if c != "seleccionar"],
-            num_rows="fixed",
-            key="tabla_trabajadores_impresion"
-        )
+            edited_df = st.data_editor(
+                df_impresion,
+                hide_index=True,
+                disabled=[c for c in df_impresion.columns if c != "seleccionar"],
+                num_rows="fixed",
+                key="tabla_trabajadores_impresion"
+            )
 
         seleccionados = edited_df[edited_df["seleccionar"] == True]
 
         if len(seleccionados) != 1:
             st.info("Seleccione un solo trabajador")
-            st.stop()
-
-        fila_idx = seleccionados.index[0]
-        trabajador = filtrados[fila_idx]
-
-        # 👉 GUARDAR TRABAJADOR SELECCIONADO
-        st.session_state.trabajador_seleccionado = trabajador
+            st.session_state.pop("trabajador_seleccionado", None)
+            st.session_state.preview_img = None
+            st.session_state.preview_error = None
+        # st.stop()
+        else:
+            fila_idx = seleccionados.index[0]
+            trabajador = filtrados[fila_idx]
+            st.session_state.trabajador_seleccionado = trabajador
+            generar_vista_previa()
 
         # ==============================
         # OPCIONES DE ETIQUETA
@@ -810,40 +824,10 @@ if "🖨️ Impresión" in tabs:
 # ======================================================
 if "🖨️ Impresoras" in tabs:
     with tab_objs[tabs.index("🖨️ Impresoras")]:
+        show_printers_panel()
         st.subheader("Configuración de impresoras")
 
-        st.markdown("### Registrar impresora")
-        c1, c2, c3 = st.columns([2,1,1])
-        nombre_imp = c1.text_input("Nombre", key="imp_nombre")
-        marca = c2.selectbox("Marca", ["ZEBRA", "TSC"], key="imp_marca")
-        conexion = c3.selectbox("Conexión", ["RED", "USB"], key="imp_conexion")
-
-        c4, c5 = st.columns([2,1])
-        ip = c4.text_input("IP (o host)", key="imp_ip", placeholder="192.168.1.50")
-        puerto = c5.number_input("Puerto", min_value=1, max_value=65535, value=9100, step=1, key="imp_puerto")
-
-        if st.button("Guardar impresora", key="btn_guardar_imp"):
-            r = requests.post(f"{API}/impresoras", json={
-                "nombre": nombre_imp,
-                "marca": marca,
-                "conexion": conexion,
-                "ip": ip,
-                "puerto": int(puerto),
-            })
-            if r.status_code == 200:
-                st.toast("Impresora registrada ✅", icon="🖨️")
-                st.rerun()
-            else:
-                st.error(r.text)
-
-        st.divider()
-        st.markdown("### Impresoras activas")
-
-        r = requests.get(f"{API}/impresoras")
-        if r.status_code == 200:
-            st.dataframe(r.json(), width="stretch")
-        else:
-            st.error(r.text)
+    
 
 
 
