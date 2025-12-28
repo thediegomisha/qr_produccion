@@ -1,89 +1,87 @@
 import os
 import json
+import base64
 import logging
-from typing import Any, Dict, List, Optional
-
+from typing import Dict, Any, Optional, List
 import requests
-from requests.exceptions import RequestException, Timeout
 
 logger = logging.getLogger(__name__)
 
-# Cargar token y lista de agentes desde variables de entorno de forma segura
-TOKEN = os.getenv("AGENT_TOKEN")
+# Token (soporta ambos nombres)
+TOKEN = os.getenv("PRINT_AGENT_TOKEN") or os.getenv("AGENT_TOKEN")
+
+# URL directa (recomendado para “dinámico”)
+DEFAULT_AGENT_URL = os.getenv("PRINT_AGENT_URL")
+
+# Fallback por lista de agentes
 _agents_raw = os.getenv("PRINT_AGENTS_JSON", "[]")
 try:
-    AGENTS: List[Dict[str, Any]] = json.loads(_agents_raw) if _agents_raw else []
+    AGENTS: List[Dict[str, Any]] = json.loads(_agents_raw)
     if not isinstance(AGENTS, list):
-        logger.warning("PRINT_AGENTS_JSON no es una lista; inicializando lista vacía")
         AGENTS = []
-except json.JSONDecodeError as e:
-    logger.exception("Error parseando PRINT_AGENTS_JSON: %s", e)
+except Exception:
     AGENTS = []
 
 
-def list_agents() -> List[Dict[str, Any]]:
-    return AGENTS
-
-
-def get_agent(agent_id: str) -> Optional[Dict[str, Any]]:
-    for a in AGENTS:
-        if a.get("id") == agent_id:
-            return a
-    return None
-
-
-def agent_headers() -> Dict[str, str]:
-    headers = {}
+def _headers() -> Dict[str, str]:
+    h: Dict[str, str] = {"Content-Type": "application/json"}
     if TOKEN:
-        headers["X-Agent-Token"] = TOKEN
-    return headers
+        h["X-Agent-Token"] = TOKEN
+    return h
 
 
-def agent_printers(agent_id: str, timeout: int = 3) -> List[Dict[str, Any]]:
-    """
-    Obtiene la lista de impresoras desde el agente.
-    Lanza RuntimeError en caso de error (agente no encontrado o fallo de red).
-    """
-    a = get_agent(agent_id)
-    if not a:
+def _resolve_agent_url(agent_url: Optional[str] = None, agent_id: Optional[str] = None) -> str:
+    # 1) URL explícita (desde UI)
+    if agent_url:
+        return agent_url.rstrip("/")
+
+    # 2) URL por env
+    if DEFAULT_AGENT_URL:
+        return DEFAULT_AGENT_URL.rstrip("/")
+
+    # 3) Buscar por agent_id en PRINT_AGENTS_JSON
+    if agent_id:
+        for a in AGENTS:
+            if a.get("id") == agent_id and a.get("base_url"):
+                return str(a["base_url"]).rstrip("/")
         raise RuntimeError(f"Agent with id '{agent_id}' not found")
 
-    base_url = a.get("base_url")
-    if not base_url:
-        raise RuntimeError(f"Agent '{agent_id}' is missing base_url")
+    # 4) Primer agente disponible
+    if AGENTS and AGENTS[0].get("base_url"):
+        return str(AGENTS[0]["base_url"]).rstrip("/")
 
-    url = f"{base_url.rstrip('/')}/printers"
-    try:
-        r = requests.get(url, headers=agent_headers(), timeout=timeout)
-        r.raise_for_status()
-        return r.json()
-    except (RequestException, Timeout) as e:
-        logger.exception("Error contacting agent '%s' at %s: %s", agent_id, base_url, e)
-        raise RuntimeError(f"Failed to contact agent '{agent_id}': {e}")
+    raise RuntimeError("No agent configured. Set PRINT_AGENT_URL or PRINT_AGENTS_JSON.")
 
 
-def enviar_job_agente(agent_id: str, printer: str, raw: str, copies: int = 1, timeout: int = 5) -> Dict[str, Any]:
+def enviar_job_agente(
+    *,
+    printer: str,
+    raw: str,
+    copies: int = 1,
+    agent_url: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    timeout: int = 15,
+) -> Dict[str, Any]:
     """
-    Envía un job al agente. Lanza RuntimeError si el agente no existe o si hay error de red.
+    Envía un job ZPL al Print Agent.
+
+    raw: ZPL en string
     """
-    a = get_agent(agent_id)
-    if not a:
-        raise RuntimeError(f"Agent with id '{agent_id}' not found")
+    base_url = _resolve_agent_url(agent_url=agent_url, agent_id=agent_id)
+    url = f"{base_url}/jobs"
 
-    base_url = a.get("base_url")
-    if not base_url:
-        raise RuntimeError(f"Agent '{agent_id}' is missing base_url")
+    # ZPL -> base64
+    if isinstance(raw, str):
+        raw_bytes = raw.encode("utf-8")
+    else:
+        raw_bytes = raw
 
-    url = f"{base_url.rstrip('/')}/jobs"
-    payload = {"printer": printer, "raw": raw, "copies": int(copies)}
-    try:
-        r = requests.post(url, json=payload, headers=agent_headers(), timeout=timeout)
-        r.raise_for_status()
-        # Si el agente devuelve JSON con detalles del job, lo retornamos; si no, devolvemos estado mínimo
-        try:
-            return r.json()
-        except ValueError:
-            return {"status": "ok"}
-    except (RequestException, Timeout) as e:
-        logger.exception("Error sending job to agent '%s' at %s: %s", agent_id, base_url, e)
-        raise RuntimeError(f"Failed to send job to agent '{agent_id}': {e}")
+    payload = {
+        "printer": printer,
+        "raw_base64": base64.b64encode(raw_bytes).decode("utf-8"),
+        "copies": int(copies),
+    }
+
+    r = requests.post(url, json=payload, headers=_headers(), timeout=timeout)
+    r.raise_for_status()
+    return r.json()

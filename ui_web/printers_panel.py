@@ -33,12 +33,22 @@ def fetch_printers(agent_base_url: str, token: str, timeout: int = 5) -> List[Di
     return resp.json()
 
 
-def send_test_print(agent_base_url: str, token: str, printer_name: str, zpl_bytes: bytes, copies: int = 1, timeout: int = 10):
-    headers = {"X-Agent-Token": token, "Content-Type": "application/json"} if token else {"Content-Type": "application/json"}
+def send_test_print(
+    agent_base_url: str,
+    token: str,
+    printer_name: str,
+    zpl_bytes: bytes,
+    copies: int = 1,
+    timeout: int = 10,
+):
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["X-Agent-Token"] = token
+
     payload = {
         "printer": printer_name,
         "raw_base64": base64.b64encode(zpl_bytes).decode(),
-        "copies": int(copies)
+        "copies": int(copies),
     }
     resp = requests.post(f"{agent_base_url}/jobs", json=payload, headers=headers, timeout=timeout)
     resp.raise_for_status()
@@ -50,8 +60,16 @@ def show_printers_panel():
     col_left, col_right = st.columns([2, 1])
 
     with col_left:
-        agent_url = st.text_input("Agent base URL", value=_get_agent_url_from_ui(), help="Ej: http://192.168.1.59:5000")
-        agent_token = st.text_input("Agent token (X-Agent-Token)", value=_get_agent_token_from_ui(), type="password")
+        agent_url = st.text_input(
+            "Agent base URL",
+            value=_get_agent_url_from_ui(),
+            help="Ej: http://200.100.20.153:5000",
+        )
+        agent_token = st.text_input(
+            "Agent token (X-Agent-Token)",
+            value=_get_agent_token_from_ui(),
+            type="password",
+        )
     with col_right:
         refresh = st.button("🔄 Refrescar lista")
 
@@ -59,11 +77,16 @@ def show_printers_panel():
         st.warning("Ingrese la URL del Print Agent.")
         return
 
-    # Fetch printers (cache_data will dedupe frequent calls)
+    # Guardar URL/token para que otras pestañas los lean (si te sirve)
+    st.session_state["selected_printer_agent_url"] = agent_url.rstrip("/")
+    st.session_state["selected_printer_token"] = agent_token  # opcional
+
+    # Fetch printers
     try:
         if refresh:
-            # clear cache manual (simple approach: call fetch_printers with different param not supported easily)
-            # So we call requests directly to force fetch (bypass cache)
+            # Limpia cache para forzar recarga real
+            fetch_printers.clear()
+
             headers = {"X-Agent-Token": agent_token} if agent_token else {}
             r = requests.get(f"{agent_url}/printers", headers=headers, timeout=5)
             r.raise_for_status()
@@ -82,13 +105,35 @@ def show_printers_panel():
 
     if not printers:
         st.info("No se encontraron impresoras en el agente.")
+        # Si no hay impresoras, limpia selección
+        st.session_state.pop("selected_printer_name", None)
         return
 
     st.write(f"Encontradas {len(printers)} impresora(s):")
 
-    # Mostrar lista y permitir seleccionar
+    # Lista de nombres
     names = [p.get("name") or f"<unnamed-{i}>" for i, p in enumerate(printers)]
-    selected = st.selectbox("Seleccionar impresora", names, index=0)
+
+    # Recupera selección previa (si existe)
+    prev = st.session_state.get("selected_printer_name")
+
+    # Si cambiaste de agente/PC y esa impresora ya no existe, limpiar
+    if prev and prev not in names:
+        st.session_state.pop("selected_printer_name", None)
+        prev = None
+
+    index = names.index(prev) if prev in names else 0
+
+    # Select persistente (queda guardado en session_state automáticamente)
+    selected = st.selectbox(
+        "Seleccionar impresora",
+        names,
+        index=index,
+        key="selected_printer_name",
+    )
+
+    # Confirmación visual
+    st.success(f"Impresora activa: {selected}")
 
     # Mostrar detalles de la impresora seleccionada
     p = next((x for x in printers if x.get("name") == selected), printers[0])
@@ -104,7 +149,9 @@ def show_printers_panel():
     if st.button("🖨️ Enviar impresión de prueba"):
         try:
             res = send_test_print(agent_url, agent_token, p["name"], zpl_example, copies=copies)
-            st.success(f"Job encolado: {res.get('job_id')} (status={res.get('status')})")
+            # Nota: tu agente devuelve "id" (no "job_id") según tus logs previos
+            job_id = res.get("job_id") or res.get("id")
+            st.success(f"Job encolado: {job_id} (status={res.get('status')})")
         except requests.HTTPError as e:
             try:
                 detail = e.response.json()
@@ -115,4 +162,7 @@ def show_printers_panel():
             st.error(f"Error enviando la impresión: {e}")
 
     st.markdown("---")
-    st.caption("Si no aparecen las impresoras locales, asegúrate de que el agente corre en la misma máquina que CUPS y que el usuario del agente puede ejecutar `lpstat` y `lp`.")
+    st.caption(
+        "La impresora seleccionada se guarda en st.session_state['selected_printer_name'] "
+        "para usarla desde otras pestañas (por ejemplo, 'Imprimir etiquetas')."
+    )
