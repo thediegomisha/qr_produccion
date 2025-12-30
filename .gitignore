@@ -1,2 +1,15 @@
 /venv/
+# Secrets / env
+.env
+.env.*
+!.env.example
+
+# Streamlit secrets
+.streamlit/secrets.toml
+
+# Python venv/cache
+venv/
+__pycache__/
+*.pyc
+
 __pycache__

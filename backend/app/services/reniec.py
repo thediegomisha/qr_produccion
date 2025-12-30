@@ -1,22 +1,25 @@
 # app/services/reniec_service.py
-import requests
 import os
+import requests
 
-API_KEY = os.getenv("APIPERU_TOKEN")
-BASE_URL = "https://apiperu.dev/api"
+BASE_URL = "https://api.perudevs.com/api/v1/dni/simple"
 
 def consultar_dni(dni: str):
-    if not API_KEY:
+    api_key = os.getenv("APIPERU_TOKEN")  # leer en runtime, no en import
+
+    if not api_key:
         print("❌ APIPERU_TOKEN no configurado")
         return None
 
-    r = requests.get(
-        f"{BASE_URL}/dni/{dni}",
-        headers={
-            "Authorization": f"Bearer {API_KEY}"
-        },
-        timeout=10
-    )
+    try:
+        r = requests.get(
+            BASE_URL,
+            params={"document": dni, "key": api_key},
+            timeout=10,
+        )
+    except requests.RequestException as e:
+        print("❌ Error de red consultando PeruDevs:", str(e))
+        return None
 
     print("🔁 STATUS APIPERU:", r.status_code)
     print("📦 BODY APIPERU:", r.text)
@@ -26,16 +29,16 @@ def consultar_dni(dni: str):
 
     payload = r.json()
 
-    # 🔑 VALIDAR FORMATO REAL
-    if not payload.get("success"):
+    # PeruDevs: estado: true/false, resultado: {...}
+    if not payload.get("estado"):
         return None
 
-    data = payload.get("data")
+    data = payload.get("resultado") or {}
     if not data:
         return None
 
     return {
-        "dni": data.get("numero"),
+        "dni": data.get("id") or dni,
         "nombre": data.get("nombres"),
         "apellido_paterno": data.get("apellido_paterno"),
         "apellido_materno": data.get("apellido_materno"),

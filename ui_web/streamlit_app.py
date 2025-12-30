@@ -23,6 +23,13 @@ if "reniec_ok" not in st.session_state:
 if "last_dni_consultado" not in st.session_state:
     st.session_state.last_dni_consultado = None
 
+if "modo_offline_trab" not in st.session_state:
+    st.session_state.modo_offline_trab = False
+
+if "reniec_error" not in st.session_state:
+    st.session_state.reniec_error = None
+
+
 
 
 API = "http://127.0.0.1:8000"
@@ -374,41 +381,56 @@ if "👤 Trabajadores" in tabs:
 
         col_dni, col_nom = st.columns([1,3])
         with col_dni:
+            st.session_state.modo_offline_trab = st.checkbox("Modo offline (sin RENIEC)",
+            value=st.session_state.modo_offline_trab,
+            help="Actívalo si no hay internet o RENIEC no responde. Te permite registrar manualmente."
+        )
+
             dni = st.text_input("DNI", max_chars=8, key="dni_trab")
 
             # ==============================
             # 🔍 VALIDACIÓN RENIEC
             # ==============================
             
-            # 🔁 Si el DNI cambia, resetear estado RENIEC
+            # Si el DNI cambia, resetear estado RENIEC
             if dni != st.session_state.last_dni_consultado:
                 st.session_state.reniec_ok = False
+                st.session_state.reniec_error = None
+
+            
 
             # 🔍 Consultar RENIEC solo si:
-            # - DNI válido
-            # - no ha sido validado aún
-            if dni and len(dni) == 8 and dni.isdigit() and not st.session_state.reniec_ok:
-                with st.spinner("Consultando RENIEC..."):
-                    r_reniec = requests.get(f"{API}/reniec/dni/{dni}")
+            # - No estamos en modo offline
+            if (not st.session_state.modo_offline_trab) and dni and len(dni) == 8 and dni.isdigit() and not st.session_state.reniec_ok:
+                try:
+                    with st.spinner("Consultando RENIEC..."):
+                        r_reniec = requests.get(f"{API}/reniec/dni/{dni}", timeout=6)
 
-                if r_reniec.status_code == 200:
-                    data = r_reniec.json()
+                    if r_reniec.status_code == 200:
+                        data = r_reniec.json()
 
-                    st.session_state.nom_trab = data["nombre"]
-                    st.session_state.ap_pat = data["apellido_paterno"]
-                    st.session_state.ap_mat = data["apellido_materno"]
+                        st.session_state.nom_trab = data["nombre"]
+                        st.session_state.ap_pat = data["apellido_paterno"]
+                        st.session_state.ap_mat = data["apellido_materno"]
 
-                    st.session_state.reniec_ok = True
-                    st.session_state.last_dni_consultado = dni
+                        st.session_state.reniec_ok = True
+                        st.session_state.last_dni_consultado = dni
 
-                    st.toast("Datos obtenidos de RENIEC", icon="🪪")
+                        st.toast("Datos obtenidos de RENIEC", icon="🪪")
 
-                elif r_reniec.status_code == 404:
-                    st.session_state.last_dni_consultado = None
-                    modal_dni_no_reniec("DNI no encontrado")
+                    elif r_reniec.status_code == 404:
+                        # DNI NO ENCONTRADO; PERMITIR INGRESO MANUAL
+                        st.session_state.reniec_ok = False
+                        st.session_state.reniec_error = "DNI no encontrado en RENIEC, puede ingresar los datos manualmente."
+                        st.session_state.last_dni_consultado = dni                    
+                        modal_dni_no_reniec("DNI no encontrado")
 
-                else:
-                    st.error("Error consultando RENIEC")
+                    else:
+                        st.session_state.reniec_ok = False
+                        st.session_state.reniec_error = f"RENIEC respondio con error: {r_reniec.status_code}. Puedes registralo manualmente."
+                except Exception as e:
+                    st.session_state.reniec_ok = False
+                    st.session_state.reniec_error = f"RENIEC no disponible: {str(e)}. Puedes registralo manualmente."
 
         with col_nom:
             nombre = st.text_input("Nombres", key="nom_trab")
@@ -429,8 +451,16 @@ if "👤 Trabajadores" in tabs:
         if st.button("Crear trabajador"):
 
             # 🔒 OBLIGAR VALIDACIÓN RENIEC
-            if not st.session_state.reniec_ok:
-                st.warning("Debe validar el DNI con RENIEC antes de continuar")
+            if not dni or len(dni) != 8 or not dni.isdigit():
+                st.warning("DNI inválido (8 dígitos)")
+                st.stop()
+
+            if not nombre.strip():
+                st.warning("Nombres obligatorios.")
+                st.stop()
+
+            if not apellido_paterno.strip():
+                st.warning("Apellido paterno obligatorio.")
                 st.stop()
 
             r = requests.post(
@@ -441,7 +471,8 @@ if "👤 Trabajadores" in tabs:
                     "apellido_paterno": apellido_paterno,
                     "apellido_materno": apellido_materno,
                     "rol": rol
-                }
+                },
+                timeout=10
             )
 
             if r.status_code == 200:
@@ -457,22 +488,23 @@ if "👤 Trabajadores" in tabs:
                     st.session_state.pop(k, None)
 
                 st.session_state.reniec_ok = False
+                st.session_state.reniec_error = None
+                st.session_state.last_dni_consultado = None
                 st.rerun()
 
-            elif r.status_code == 400 and "DNI ya registrado" in r.text:
+            elif r.status_code == 409 and "DNI ya registrado" in r.text:
                 modal_error_dni_registrado("DNI ya registrado")
 
             else:
-                st.error(r.text)
+                st.error("No se pudo crear el trabajador")
+                st.code(r.text)
 
             st.divider()
         
-                
-            
         r = requests.get(f"{API}/trabajadores?activos=true")
         if r.status_code != 200:
             st.error("Error cargando trabajadores")
-           # st.stop()
+            # st.stop()
         else:
             trabajadores = r.json()
             # ORDENAR ASCENDENTE POR num_orden
@@ -802,54 +834,53 @@ if "🖨️ Impresión" in tabs:
         if st.session_state.get("preview_error"):
             st.error("Error al generar la vista previa")
 
-btn_label = f"🖨️ Imprimir etiquetas ({selected_printer})" if selected_printer else "🖨️ Imprimir etiquetas"
+        btn_label = f"🖨️ Imprimir etiquetas ({selected_printer})" if selected_printer else "🖨️ Imprimir etiquetas"
 
-# usar siempre el trabajador desde session_state para evitar variables fuera de scope
-trabajador_sel = st.session_state.get("trabajador_seleccionado")
+        # usar siempre el trabajador desde session_state para evitar variables fuera de scope
+        trabajador_sel = st.session_state.get("trabajador_seleccionado")
 
-if st.button(btn_label, disabled=not bool(selected_printer)):
-    if not trabajador_sel:
-        st.error("Seleccione un trabajador antes de imprimir.")
-        st.stop()
+        if st.button(btn_label, disabled=not bool(selected_printer)):
+            if not trabajador_sel:
+                st.error("Seleccione un trabajador antes de imprimir.")
+                st.stop()
 
-    nn_value = (
-        trabajador_sel["num_orden"]
-        if st.session_state.opcion_mostrar == "Número de orden"
-        else trabajador_sel["cod_letra"]
-    )
-
-
-    printer = st.session_state.get("selected_printer_name")
-    agent_url = st.session_state.get("selected_printer_agent_url")
-
-    requests.post(
-            f"{API}/qr/print",
-            json={
-                "dni": trabajador_sel["dni"],
-                "nn": nn_value,
-                "producto": st.session_state.producto,
-                "cantidad": st.session_state.cantidad,
-                "printer": printer,
-                "agent_url": agent_url,
-            },
-            timeout=15
-        )
+            nn_value = (
+                trabajador_sel["num_orden"]
+                if st.session_state.opcion_mostrar == "Número de orden"
+                else trabajador_sel["cod_letra"]
+            )
 
 
-    if r.status_code == 200:
-        st.toast("Impresión enviada correctamente 🖨️", icon="✅")
-    else:
-        st.error("Error al imprimir")
-        st.code(r.text)
+            printer = st.session_state.get("selected_printer_name")
+            agent_url = st.session_state.get("selected_printer_agent_url")
 
-        # 🧹 limpiar estado
-        for k in (
-            "tabla_trabajadores_impresion",
-            "trabajador_seleccionado",
-            "preview_img",
-            "preview_error"
-        ):
-            st.session_state.pop(k, None)
+            requests.post(
+                    f"{API}/qr/print",
+                    json={
+                        "dni": trabajador_sel["dni"],
+                        "nn": nn_value,
+                        "producto": st.session_state.producto,
+                        "cantidad": st.session_state.cantidad,
+                        "printer": printer,
+                        "agent_url": agent_url,
+                    },
+                    timeout=15
+                )
+
+            if r.status_code == 200:
+                st.toast("Impresión enviada correctamente 🖨️", icon="✅")
+            else:
+                st.error("Error al imprimir")
+                st.code(r.text)
+
+                # 🧹 limpiar estado
+                for k in (
+                    "tabla_trabajadores_impresion",
+                    "trabajador_seleccionado",
+                    "preview_img",
+                    "preview_error"
+                ):
+                    st.session_state.pop(k, None)
 
 
 # ======================================================

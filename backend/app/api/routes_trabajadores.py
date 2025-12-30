@@ -46,15 +46,21 @@ def listar_trabajadores(activos: bool = True):
 # ==================================================
 @router.post("/")
 def crear_trabajador(data: dict):
-    
+
     if get_rol() not in ("ROOT", "SUPERVISOR"):
         raise HTTPException(403, "Permiso insuficiente")
 
+    # ✅ Soporta nombres alternativos que suele mandar la UI
     dni = (data.get("dni") or "").strip()
-    nombre = (data.get("nombre") or "").strip()
-    apellido_paterno = (data.get("apellido_paterno") or "").strip()
-    apellido_materno = (data.get("apellido_materno") or "").strip()
-    rol = (data.get("rol") or "").strip()
+
+    # UI a veces manda "nombres" en vez de "nombre"
+    nombre = (data.get("nombre") or data.get("nombres") or "").strip()
+
+    # soporta ap_paterno/ap_materno como fallback
+    apellido_paterno = (data.get("apellido_paterno") or data.get("ap_paterno") or "").strip()
+    apellido_materno = (data.get("apellido_materno") or data.get("ap_materno") or "").strip()
+
+    rol = (data.get("rol") or "").strip().upper()
 
     # -------------------------------
     # Validaciones
@@ -62,17 +68,17 @@ def crear_trabajador(data: dict):
     if len(dni) != 8 or not dni.isdigit():
         raise HTTPException(status_code=400, detail="DNI inválido (8 dígitos)")
 
+    # ✅ Permite manual (sin RENIEC) siempre que escriban estos campos
     if not nombre:
-        raise HTTPException(400, "Nombres obligatorios")
+        raise HTTPException(status_code=400, detail="Nombre(s) obligatorios (registro manual)")
 
     if not apellido_paterno:
-        raise HTTPException(400, "Apellido paterno obligatorio")
-
+        raise HTTPException(status_code=400, detail="Apellido paterno obligatorio (registro manual)")
 
     if rol not in ("EMPACADORA", "SELECCIONADOR"):
         raise HTTPException(
             status_code=400,
-            detail="Nombre y apellido paterno son obligatorios"
+            detail="Rol inválido. Solo se permite: EMPACADORA o SELECCIONADOR."
         )
 
     with SessionLocal() as db:
@@ -85,35 +91,25 @@ def crear_trabajador(data: dict):
         if existe:
             raise HTTPException(status_code=409, detail="DNI ya registrado")
 
-       # Asignación automática
+        # Asignación automática
         try:
             num_orden = next_num_orden(db)
             cod_letra = next_cod_letra(db)
         except ValueError as e:
-            # 409 = conflicto por falta de disponibilidad
             raise HTTPException(status_code=409, detail=str(e))
-        
-        try:
 
+        try:
             db.execute(
-                text(""" INSERT INTO trabajadores (
-                        dni,
-                        nombre,
-                        apellido_paterno,
-                        apellido_materno,
-                        rol,
-                        num_orden,
-                        cod_letra,
-                        activo )
+                text("""
+                    INSERT INTO trabajadores (
+                        dni, nombre, apellido_paterno, apellido_materno,
+                        rol, num_orden, cod_letra, activo
+                    )
                     VALUES (
-                        :dni,
-                        :nombre,
-                        :ap_paterno,
-                        :ap_materno,
-                        :rol,
-                        :num_orden,
-                        :cod_letra,
-                        true ) """),
+                        :dni, :nombre, :ap_paterno, :ap_materno,
+                        :rol, :num_orden, :cod_letra, true
+                    )
+                """),
                 {
                     "dni": dni,
                     "nombre": nombre,
@@ -123,19 +119,13 @@ def crear_trabajador(data: dict):
                     "num_orden": num_orden,
                     "cod_letra": cod_letra
                 }
-        )
-
+            )
             db.commit()
         except IntegrityError:
             db.rollback()
             raise HTTPException(status_code=409, detail="Conflicto: códigos ya asignados. Intente nuevamente.")
 
-    return {
-        "ok": True,
-        "dni": dni,
-        "num_orden": num_orden,
-        "cod_letra": cod_letra
-    }
+    return {"ok": True, "dni": dni, "num_orden": num_orden, "cod_letra": cod_letra}
 
 # ==================================================
 # ACTUALIZAR TRABAJADOR
