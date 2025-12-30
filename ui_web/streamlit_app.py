@@ -1,14 +1,28 @@
-from printers_panel import show_printers_panel
+from printers_panel import show_printers_panel, bootstrap_printer_selection
 import streamlit as st
+import base64
+from pathlib import Path
 
 st.set_page_config(
     page_title="Sistema de Etiquetas",
-    page_icon="logo_empresa.png",
+    page_icon="logoappqr.png",
     layout="wide"
 )
+BASE_DIR = Path(__file__).resolve().parent  # carpeta ui_web/
+ASSETS_DIR = BASE_DIR / "assets"
+
+def _img_to_base64(filename: str) -> str:
+    path = ASSETS_DIR / filename
+    if not path.exists():
+        raise FileNotFoundError(f"No existe la imagen: {path}")
+    return base64.b64encode(path.read_bytes()).decode("utf-8")
+
+LOGIN_IMG_B64 = _img_to_base64("logoappqr.png") 
 
 import requests
 import pandas as pd
+from textwrap import dedent
+
 
 # ==============================
 # ESTADO DEL MODAL
@@ -113,139 +127,126 @@ if resp.status_code == 200 and not resp.json().get("initialized"):
     st.stop()
 
 # --------------------------------------------------
-# LOGIN (COLORES CORPORATIVOS DEL LOGO)
+# LOGIN
 # --------------------------------------------------
 if not st.session_state.auth:
 
     st.markdown("""
     <style>
-    /* Fondo solo login */
-    .login-overlay {
-        position: fixed;
-        inset: 0;
-        background: linear-gradient(
-            135deg,
-            #e8f5e9 0%,
-            #f5f7f6 60%
-        );
-        z-index: -1;
-    }
+      /* Fondo solo login */
+        .login-overlay{
+        position: fixed; inset: 0;
+        background: linear-gradient(135deg,#e8f5e9 0%,#f5f7f6 60%);
+        z-index:-1;
+      }
 
-    /* Modal */
-    .login-modal {
-        background: #ffffff;
-        padding: 2.8rem 2.5rem 2.3rem 2.5rem;
+      /* Estilo del container (solo se usa en login) */
+      div[data-testid="stContainer"]{
+        background:#ffffff;
+        padding: 1.8rem 1.6rem 1.4rem 1.6rem;
         border-radius: 20px;
         box-shadow: 0 25px 50px rgba(0,0,0,0.25);
         border-top: 6px solid #2E7D32;
-    }
+      }
 
-    /* Logo */
-    .login-logo {
-        display: flex;
-        justify-content: center;
-        margin-bottom: 0.8rem;
-    }
+      .login-title{
+        text-align:center;
+        font-size:1.65rem;
+        font-weight:700;
+        color:#1B5E20;
+        margin: 0.2rem 0 0.2rem 0;
+      }
+      .login-subtitle{
+        text-align:center;
+        color:#6b7280;
+        font-size:0.9rem;
+        margin: 0 0 1.0rem 0;
+      }
 
-    /* Títulos */
-    .login-title {
-        text-align: center;
-        font-size: 1.65rem;
-        font-weight: 700;
-        color: #1B5E20;
-        margin-bottom: 0.2rem;
-    }
+      /* Inputs */
+      .stTextInput input{
+        background-color:#f1f5f4 !important;
+        border-radius:10px !important;
+        border:1px solid #c8e6c9 !important;
+      }
+      .stTextInput input:focus{
+        border-color:#2E7D32 !important;
+        box-shadow:0 0 0 1px #2E7D32 !important;
+      }
 
-    .login-subtitle {
-        text-align: center;
-        color: #6b7280;
-        font-size: 0.9rem;
-        margin-bottom: 2rem;
-    }
+      /* Botón: SOLO el submit del form (no el ojito del password) */
+        div[data-testid="stFormSubmitButton"] > button{
+        width:100%;
+        background: linear-gradient(135deg,#2E7D32,#1B5E20) !important;
+        color:white !important;
+        font-weight:600 !important;
+        padding:0.65rem !important;
+        border-radius:12px !important;
+        border:none !important;
+        margin-top:0.4rem !important;
+        }
 
-    /* Inputs */
-    .login-modal input {
-        background-color: #f1f5f4;
-        border-radius: 10px !important;
-        border: 1px solid #c8e6c9;
-    }
+        /* Asegura que el botón "ojito" NO herede estilos de botón grande */
+        div[data-testid="stTextInput"] button{
+        width:auto !important;
+        padding:0.25rem 0.5rem !important;
+        background: transparent !important;
+        border: 0 !important;
+        box-shadow: none !important;
+}
 
-    .login-modal input:focus {
-        border-color: #2E7D32;
-        box-shadow: 0 0 0 1px #2E7D32;
-    }
-
-    /* Botón */
-    .login-modal .stButton > button {
-        width: 100%;
-        background: linear-gradient(
-            135deg,
-            #2E7D32,
-            #1B5E20
-        );
-        color: white;
-        font-weight: 600;
-        padding: 0.65rem;
-        border-radius: 12px;
-        border: none;
-        margin-top: 0.8rem;
-    }
-
-    .login-modal .stButton > button:hover {
-        background: linear-gradient(
-            135deg,
-            #1B5E20,
-            #2E7D32
-        );
-    }
     </style>
-
     <div class="login-overlay"></div>
     """, unsafe_allow_html=True)
 
-    # CENTRADO NATIVO
     col1, col2, col3 = st.columns([1, 1.2, 1])
 
     with col2:
-        st.markdown("""
-        <div class="login-modal">
-            <div class="login-logo">
-                <img src="data:image/png;base64,LOGO_BASE64" width="95"/>
-            </div>
-            <div class="login-title">Sistema de Etiquetas</div>
-            <div class="login-subtitle">Agrícola del Sur Pisco</div>
-        """, unsafe_allow_html=True)
+        # ESTE container sí envuelve widgets (no como un <div> HTML)
+        with st.container(border=True):
 
-        usuario = st.text_input("Usuario", key="login_username")
-        password = st.text_input("Contraseña", type="password", key="login_password")
+            st.markdown('<div class="login-title">Sistema de Etiquetas</div>', unsafe_allow_html=True)
+            st.markdown('<div class="login-subtitle">Agrícola del Sur Pisco</div>', unsafe_allow_html=True)
 
-        if st.button("Ingresar"):
-            r = requests.post(
-                f"{API}/auth/login",
-                json={
-                    "usuario": usuario,
-                    "password": password
-                }
+            st.markdown(
+                f"""
+                <div style="display:flex; justify-content:center; margin: 0.2rem 0 1.2rem 0;">
+                  <img src="data:image/png;base64,{LOGIN_IMG_B64}"
+                       style="max-width:260px; width:100%; height:auto; border-radius:14px;" />
+                </div>
+                """,
+                unsafe_allow_html=True
             )
 
-            if r.status_code == 200:
-                st.session_state.auth = r.json()
-                st.success("Ingreso correcto")
-                st.rerun()
-            else:
-                st.error("Usuario o contraseña incorrectos")
+            # FORM: Enter envía
+            with st.form("login_form", clear_on_submit=False):
+                usuario = st.text_input("Usuario", key="login_username")
+                password = st.text_input("Contraseña", type="password", key="login_password")
+                submit = st.form_submit_button("Ingresar")
 
-        st.markdown("</div>", unsafe_allow_html=True)
+            if submit:
+                r = requests.post(
+                    f"{API}/auth/login",
+                    json={"usuario": usuario, "password": password}
+                )
+
+                if r.status_code == 200:
+                    st.session_state.auth = r.json()
+                    bootstrap_printer_selection()
+                    st.success("Ingreso correcto")
+                    st.rerun()
+                else:
+                    st.error("Usuario o contraseña incorrectos")
 
     st.stop()
-
-
 
 # --------------------------------------------------
 # MOSTRAR USUARIO ACTIVO Y CERRAR SESIÓN
 # --------------------------------------------------
 rol = st.session_state.auth["rol"]
 usuario = st.session_state.auth["usuario"]
+bootstrap_printer_selection()
+
 
 st.sidebar.success(f"{usuario} ({rol})")
 
@@ -556,70 +557,83 @@ if "edit_trabajador_id" not in st.session_state:
 if "show_edit_modal" not in st.session_state:
     st.session_state.show_edit_modal = False
 
-# ------------------------------
-# Selección desde data_editor
-# ------------------------------
-seleccionados = edited_df[edited_df["✏️"] == True]
+    # ------------------------------
+    # Selección desde data_editor
+    # ------------------------------
+    seleccionados = edited_df[edited_df["✏️"] == True]
 
-selected_id = None
-if len(seleccionados) == 1:
-    fila_idx = seleccionados.index[0]
-    tr = trabajadores[fila_idx]
-    selected_id = tr["id"]
+    selected_id = None
+    if len(seleccionados) == 1:
+        fila_idx = seleccionados.index[0]
+        tr = trabajadores[fila_idx]
+        selected_id = tr["id"]
 
-    # Abrir SOLO si cambió la selección (evita reapertura constante)
-    if st.session_state.edit_trabajador_id != selected_id:
-        st.session_state.edit_trabajador_id = selected_id
-        st.session_state.show_edit_modal = True
+        # Abrir SOLO si cambió la selección (evita reapertura constante)
+        if st.session_state.edit_trabajador_id != selected_id:
+            st.session_state.edit_trabajador_id = selected_id
+            st.session_state.show_edit_modal = True
 
-# Si no hay selección, no mantener modal “pegado”
-if selected_id is None and st.session_state.show_edit_modal:
-    st.session_state.show_edit_modal = False
-    st.session_state.edit_trabajador_id = None
+    # Si no hay selección, no mantener modal “pegado”
+    if selected_id is None and st.session_state.show_edit_modal:
+        st.session_state.show_edit_modal = False
+        st.session_state.edit_trabajador_id = None
 
 
-# ------------------------------
-# MODAL DE EDICIÓN (solo si está activo)
-# ------------------------------
-if st.session_state.show_edit_modal and st.session_state.edit_trabajador_id:
+    # ------------------------------
+    # MODAL DE EDICIÓN (solo si está activo)
+    # ------------------------------
+    if st.session_state.show_edit_modal and st.session_state.edit_trabajador_id:
 
-    tr = next(t for t in trabajadores if t["id"] == st.session_state.edit_trabajador_id)
+        tr = next(t for t in trabajadores if t["id"] == st.session_state.edit_trabajador_id)
 
-    @st.dialog("Editar trabajador")
-    def modal_editar_trabajador():
-        # IMPORTANTE: el form necesita key única
-        with st.form(key=f"form_editar_trabajador_{tr['id']}"):
-            dni = st.text_input("DNI", value=tr["dni"], key=f"edit_dni_{tr['id']}")
-            nombre = st.text_input("Nombre", value=tr["nombre"], key=f"edit_nom_{tr['id']}")
-            ap_pat = st.text_input("Apellido paterno", value=tr["apellido_paterno"], key=f"edit_ap_pat_{tr['id']}")
-            ap_mat = st.text_input("Apellido materno", value=tr["apellido_materno"], key=f"edit_ap_mat_{tr['id']}")
-            rol = st.selectbox(
-                "Rol",
-                ["EMPACADORA", "SELECCIONADOR"],
-                index=["EMPACADORA", "SELECCIONADOR"].index(tr["rol"]),
-                key=f"edit_rol_{tr['id']}"
-            )
+        @st.dialog("Editar trabajador")
+        def modal_editar_trabajador():
+            # IMPORTANTE: el form necesita key única
+            with st.form(key=f"form_editar_trabajador_{tr['id']}"):
+                dni = st.text_input("DNI", value=tr["dni"], key=f"edit_dni_{tr['id']}")
+                nombre = st.text_input("Nombre", value=tr["nombre"], key=f"edit_nom_{tr['id']}")
+                ap_pat = st.text_input("Apellido paterno", value=tr["apellido_paterno"], key=f"edit_ap_pat_{tr['id']}")
+                ap_mat = st.text_input("Apellido materno", value=tr["apellido_materno"], key=f"edit_ap_mat_{tr['id']}")
+                rol = st.selectbox(
+                    "Rol",
+                    ["EMPACADORA", "SELECCIONADOR"],
+                    index=["EMPACADORA", "SELECCIONADOR"].index(tr["rol"]),
+                    key=f"edit_rol_{tr['id']}"
+                )
 
-            c1, c2 = st.columns(2)
-            guardar = c1.form_submit_button("💾 Guardar")
-            cancelar = c2.form_submit_button("❌ Cancelar")
+                c1, c2 = st.columns(2)
+                guardar = c1.form_submit_button("💾 Guardar")
+                cancelar = c2.form_submit_button("❌ Cancelar")
 
-        # ---- Guardar
-        if guardar:
-            r = requests.put(
-                f"{API}/trabajadores/{tr['id']}",
-                json={
-                    "dni": dni,
-                    "nombre": nombre,
-                    "apellido_paterno": ap_pat,
-                    "apellido_materno": ap_mat,
-                    "rol": rol
-                }
-            )
+            # ---- Guardar
+            if guardar:
+                r = requests.put(
+                    f"{API}/trabajadores/{tr['id']}",
+                    json={
+                        "dni": dni,
+                        "nombre": nombre,
+                        "apellido_paterno": ap_pat,
+                        "apellido_materno": ap_mat,
+                        "rol": rol
+                    }
+                )
 
-            if r.status_code == 200:
-                st.success("Trabajador actualizado correctamente")
+                if r.status_code == 200:
+                    st.success("Trabajador actualizado correctamente")
 
+                    # Cerrar modal
+                    st.session_state.show_edit_modal = False
+                    st.session_state.edit_trabajador_id = None
+
+                    # 🔑 Limpiar estado del data_editor para desmarcar ✏️
+                    st.session_state.pop("tabla_trabajadores_editar", None)
+
+                    st.rerun()
+                else:
+                    st.error(r.text)
+
+            # ---- Cancelar
+            if cancelar:
                 # Cerrar modal
                 st.session_state.show_edit_modal = False
                 st.session_state.edit_trabajador_id = None
@@ -628,21 +642,8 @@ if st.session_state.show_edit_modal and st.session_state.edit_trabajador_id:
                 st.session_state.pop("tabla_trabajadores_editar", None)
 
                 st.rerun()
-            else:
-                st.error(r.text)
 
-        # ---- Cancelar
-        if cancelar:
-            # Cerrar modal
-            st.session_state.show_edit_modal = False
-            st.session_state.edit_trabajador_id = None
-
-            # 🔑 Limpiar estado del data_editor para desmarcar ✏️
-            st.session_state.pop("tabla_trabajadores_editar", None)
-
-            st.rerun()
-
-    modal_editar_trabajador()
+        modal_editar_trabajador()
 
 
                     
@@ -822,21 +823,16 @@ if "🖨️ Impresión" in tabs:
         # ==============================
         # IMPRESORA SELECCIONADA (desde pestaña Impresoras)
         # ==============================
-        selected_printer = st.session_state.get("selected_printer_name")  # viene del printers_panel
-        selected_agent_url = st.session_state.get("selected_printer_agent_url")  # opcional
+        selected_printer = st.session_state.get("selected_printer_name")
+        selected_agent_url = st.session_state.get("selected_printer_agent_url")
 
         if selected_printer:
             st.caption(f"Impresora seleccionada: **{selected_printer}**")
         else:
             st.warning("No hay impresora seleccionada. Ve a la pestaña **🖨️ Impresoras** y selecciona una.")
 
-
-        if st.session_state.get("preview_error"):
-            st.error("Error al generar la vista previa")
-
         btn_label = f"🖨️ Imprimir etiquetas ({selected_printer})" if selected_printer else "🖨️ Imprimir etiquetas"
 
-        # usar siempre el trabajador desde session_state para evitar variables fuera de scope
         trabajador_sel = st.session_state.get("trabajador_seleccionado")
 
         if st.button(btn_label, disabled=not bool(selected_printer)):
@@ -850,22 +846,22 @@ if "🖨️ Impresión" in tabs:
                 else trabajador_sel["cod_letra"]
             )
 
-
-            printer = st.session_state.get("selected_printer_name")
-            agent_url = st.session_state.get("selected_printer_agent_url")
-
-            requests.post(
+            try:
+                r = requests.post(
                     f"{API}/qr/print",
                     json={
                         "dni": trabajador_sel["dni"],
                         "nn": nn_value,
                         "producto": st.session_state.producto,
                         "cantidad": st.session_state.cantidad,
-                        "printer": printer,
-                        "agent_url": agent_url,
+                        "printer": selected_printer,
+                        "agent_url": selected_agent_url,
                     },
                     timeout=15
                 )
+            except Exception as e:
+                st.error(f"Error enviando impresión: {e}")
+                st.stop()
 
             if r.status_code == 200:
                 st.toast("Impresión enviada correctamente 🖨️", icon="✅")
