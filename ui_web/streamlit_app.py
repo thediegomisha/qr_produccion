@@ -193,7 +193,7 @@ if not st.session_state.auth:
         background: transparent !important;
         border: 0 !important;
         box-shadow: none !important;
-}
+    }
 
     </style>
     <div class="login-overlay"></div>
