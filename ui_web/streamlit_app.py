@@ -258,11 +258,12 @@ if st.sidebar.button("Cerrar sesión"):
 tabs = []
 
 if rol == "ROOT":
-    tabs = ["Usuarios", "Listar", "🖨️ Impresión", "👤 Trabajadores", "🖨️ Impresoras"]
+    tabs = ["Usuarios", "Listar", "🖨️ Impresión", "👤 Trabajadores", "🖨️ Impresoras", "📊 Reportes"]
 elif rol == "SUPERVISOR":
-    tabs = ["Listar", "🖨️ Impresión", "👤 Trabajadores", "🖨️ Impresoras"]
+    tabs = ["Listar", "🖨️ Impresión", "👤 Trabajadores", "🖨️ Impresoras", "📊 Reportes"]
 else:
     tabs = ["🖨️ Impresión"]
+
 
 tab_objs = st.tabs(tabs)
 
@@ -878,7 +879,6 @@ if "🖨️ Impresión" in tabs:
                 ):
                     st.session_state.pop(k, None)
 
-
 # ======================================================
 # 6) PESTAÑA 🖨️ IMPRESORAS 
 # ======================================================
@@ -886,6 +886,73 @@ if "🖨️ Impresoras" in tabs:
     with tab_objs[tabs.index("🖨️ Impresoras")]:
         show_printers_panel()
         st.subheader("Configuración de impresoras")
+
+# ======================================================
+# PESTAÑA 📊 REPORTES
+# ======================================================
+if "📊 Reportes" in tabs:
+    import pandas as pd
+    import requests
+    from datetime import timedelta
+
+    with tab_objs[tabs.index("📊 Reportes")]:
+        st.subheader("Reportes por DNI")
+
+        jwt = st.session_state.auth.get("access_token")
+        rol = (st.session_state.auth.get("rol") or "").upper()
+        headers = {"Authorization": f"Bearer {jwt}"} if jwt else {}
+
+        c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
+        with c1:
+            f_ini = st.date_input("Desde")
+        with c2:
+            f_fin = st.date_input("Hasta")
+        with c3:
+            producto = st.text_input("Producto (opcional)", value="")
+        with c4:
+            scanned_by = ""
+            if rol in ("ROOT", "SUPERVISOR"):
+                scanned_by = st.text_input("Usuario que escaneó (opcional)", value="")
+
+        from_dt = f"{f_ini.isoformat()}T00:00:00Z"
+        to_dt = f"{(f_fin + timedelta(days=1)).isoformat()}T00:00:00Z"  # fin exclusivo
+
+        params = {"date_from": from_dt, "date_to": to_dt}
+        if producto.strip():
+            params["producto"] = producto.strip()
+        if rol in ("ROOT", "SUPERVISOR") and scanned_by.strip():
+            params["scanned_by"] = scanned_by.strip()
+
+        if st.button("Generar reporte", type="primary"):
+            r = requests.get(f"{API}/reports/dni-summary", params=params, headers=headers, timeout=20)
+            if r.status_code != 200:
+                st.error("Error en /reports/dni-summary")
+                st.code(r.text)
+            else:
+                data = r.json()
+                tot = data.get("totals", {}) or {}
+
+                # ✅ UNA SOLA FILA (3 columnas)
+                c1, c2, c3 = st.columns(3)
+
+                c1.metric("Total lecturas", int(tot.get("total_lecturas", 0)))
+
+                # ✅ Cantidad de IDs (no lecturas)
+                c2.metric("Empacador", int(tot.get("emp_lecturas", 0)))
+                c3.metric("Seleccionador", int(tot.get("sel_lecturas", 0)))
+
+                # (Opcional) Si también quieres ver lecturas por tipo en otra fila:
+                # d1, d2, d3 = st.columns(3)
+                # d1.metric("Lecturas empacador", int(tot.get("emp_lecturas", 0)))
+                # d2.metric("Lecturas seleccionador", int(tot.get("sel_lecturas", 0)))
+                # d3.metric("IDs únicos totales", int(tot.get("total_ids_unicos", 0)))
+
+                df = pd.DataFrame(data.get("rows", []))
+                if df.empty:
+                    st.info("Sin datos.")
+                else:
+                    st.dataframe(df, use_container_width='stretch')
+
 
     
 
