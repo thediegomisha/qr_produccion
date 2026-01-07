@@ -1,11 +1,10 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy import text
-from app.db.base import SessionLocal
-from app.core.assignments import next_num_orden, next_cod_letra
-from app.core.session import get_rol
 from sqlalchemy.exc import IntegrityError
 
-
+from app.db.base import SessionLocal
+from app.core.assignments import next_num_orden, next_cod_letra
+from app.core.auth_dep import get_current_user 
 
 router = APIRouter()
 
@@ -13,13 +12,15 @@ router = APIRouter()
 # LISTAR TRABAJADORES
 # ==================================================
 @router.get("/")
-def listar_trabajadores(activos: bool = True):
+def listar_trabajadores(activos: bool = True, user: dict = Depends(get_current_user)):
     """
     Lista trabajadores.
     - activos=true  → solo activos
-    - activos=false → todos """
+    - activos=false → todos
+    """
     with SessionLocal() as db:
-        query = """ SELECT
+        query = """
+            SELECT
                 id,
                 dni,
                 nombre,
@@ -30,7 +31,8 @@ def listar_trabajadores(activos: bool = True):
                 cod_letra,
                 activo,
                 creado_en
-            FROM trabajadores """
+            FROM trabajadores
+        """
 
         if activos:
             query += " WHERE activo = true"
@@ -40,58 +42,35 @@ def listar_trabajadores(activos: bool = True):
         rows = db.execute(text(query)).mappings().all()
         return list(rows)
 
-
 # ==================================================
 # CREAR TRABAJADOR
 # ==================================================
 @router.post("/")
-def crear_trabajador(data: dict):
+def crear_trabajador(data: dict, user: dict = Depends(get_current_user)):
+    rol_user = (user.get("rol") or "").upper()
+    if rol_user not in ("ROOT", "SUPERVISOR"):
+        raise HTTPException(status_code=403, detail="Permiso insuficiente")
 
-    if get_rol() not in ("ROOT", "SUPERVISOR"):
-        raise HTTPException(403, "Permiso insuficiente")
-
-    # ✅ Soporta nombres alternativos que suele mandar la UI
     dni = (data.get("dni") or "").strip()
-
-    # UI a veces manda "nombres" en vez de "nombre"
     nombre = (data.get("nombre") or data.get("nombres") or "").strip()
-
-    # soporta ap_paterno/ap_materno como fallback
     apellido_paterno = (data.get("apellido_paterno") or data.get("ap_paterno") or "").strip()
     apellido_materno = (data.get("apellido_materno") or data.get("ap_materno") or "").strip()
-
     rol = (data.get("rol") or "").strip().upper()
 
-    # -------------------------------
-    # Validaciones
-    # -------------------------------
     if len(dni) != 8 or not dni.isdigit():
         raise HTTPException(status_code=400, detail="DNI inválido (8 dígitos)")
-
-    # ✅ Permite manual (sin RENIEC) siempre que escriban estos campos
     if not nombre:
-        raise HTTPException(status_code=400, detail="Nombre(s) obligatorios (registro manual)")
-
+        raise HTTPException(status_code=400, detail="Nombre(s) obligatorios")
     if not apellido_paterno:
-        raise HTTPException(status_code=400, detail="Apellido paterno obligatorio (registro manual)")
-
+        raise HTTPException(status_code=400, detail="Apellido paterno obligatorio")
     if rol not in ("EMPACADORA", "SELECCIONADOR"):
-        raise HTTPException(
-            status_code=400,
-            detail="Rol inválido. Solo se permite: EMPACADORA o SELECCIONADOR."
-        )
+        raise HTTPException(status_code=400, detail="Rol inválido")
 
     with SessionLocal() as db:
-        # DNI único
-        existe = db.execute(
-            text("SELECT 1 FROM trabajadores WHERE dni = :dni"),
-            {"dni": dni}
-        ).first()
-
+        existe = db.execute(text("SELECT 1 FROM trabajadores WHERE dni=:dni"), {"dni": dni}).first()
         if existe:
             raise HTTPException(status_code=409, detail="DNI ya registrado")
 
-        # Asignación automática
         try:
             num_orden = next_num_orden(db)
             cod_letra = next_cod_letra(db)
@@ -104,8 +83,7 @@ def crear_trabajador(data: dict):
                     INSERT INTO trabajadores (
                         dni, nombre, apellido_paterno, apellido_materno,
                         rol, num_orden, cod_letra, activo
-                    )
-                    VALUES (
+                    ) VALUES (
                         :dni, :nombre, :ap_paterno, :ap_materno,
                         :rol, :num_orden, :cod_letra, true
                     )
@@ -117,7 +95,7 @@ def crear_trabajador(data: dict):
                     "ap_materno": apellido_materno,
                     "rol": rol,
                     "num_orden": num_orden,
-                    "cod_letra": cod_letra
+                    "cod_letra": cod_letra,
                 }
             )
             db.commit()
@@ -131,46 +109,41 @@ def crear_trabajador(data: dict):
 # ACTUALIZAR TRABAJADOR
 # ==================================================
 @router.put("/{trabajador_id}")
-def actualizar_trabajador(trabajador_id: int, data: dict):
+def actualizar_trabajador(trabajador_id: int, data: dict, user: dict = Depends(get_current_user)):
 
-    if get_rol() not in ("ROOT", "SUPERVISOR"):
-        raise HTTPException(403, "Permiso insuficiente")
+    if (user.get("rol") or "").upper() not in ("ROOT", "SUPERVISOR"):
+        raise HTTPException(status_code=403, detail="Permiso insuficiente")
 
     dni = (data.get("dni") or "").strip()
     nombre = (data.get("nombre") or "").strip()
     apellido_paterno = (data.get("apellido_paterno") or "").strip()
     apellido_materno = (data.get("apellido_materno") or "").strip()
-    rol = (data.get("rol") or "").strip()
+    rol_trab = (data.get("rol") or "").strip().upper()
 
-    # -------------------------------
-    # Validaciones
-    # -------------------------------
     if len(dni) != 8 or not dni.isdigit():
-        raise HTTPException(400, "DNI inválido (8 dígitos)")
+        raise HTTPException(status_code=400, detail="DNI inválido (8 dígitos)")
 
     if not nombre:
-        raise HTTPException(400, "Nombre obligatorio")
+        raise HTTPException(status_code=400, detail="Nombre obligatorio")
 
     if not apellido_paterno:
-        raise HTTPException(400, "Apellido paterno obligatorio")
+        raise HTTPException(status_code=400, detail="Apellido paterno obligatorio")
 
-    if rol not in ("EMPACADORA", "SELECCIONADOR"):
+    if rol_trab not in ("EMPACADORA", "SELECCIONADOR"):
         raise HTTPException(
-        detail="Rol inválido. Solo se permite: EMPACADORA o SELECCIONADOR."
-    )
+            status_code=400,
+            detail="Rol inválido. Solo se permite: EMPACADORA o SELECCIONADOR."
+        )
 
     with SessionLocal() as db:
-
-        # Verificar existencia
         existe = db.execute(
             text("SELECT id FROM trabajadores WHERE id = :id"),
             {"id": trabajador_id}
         ).first()
 
         if not existe:
-            raise HTTPException(404, "Trabajador no encontrado")
+            raise HTTPException(status_code=404, detail="Trabajador no encontrado")
 
-        # Validar DNI duplicado (excluyendo al mismo trabajador)
         dni_duplicado = db.execute(
             text("""
                 SELECT 1 FROM trabajadores
@@ -180,9 +153,8 @@ def actualizar_trabajador(trabajador_id: int, data: dict):
         ).first()
 
         if dni_duplicado:
-            raise HTTPException(409, "DNI ya registrado por otro trabajador")
+            raise HTTPException(status_code=409, detail="DNI ya registrado por otro trabajador")
 
-        # Actualización
         db.execute(
             text("""
                 UPDATE trabajadores
@@ -199,11 +171,10 @@ def actualizar_trabajador(trabajador_id: int, data: dict):
                 "nombre": nombre,
                 "ap_paterno": apellido_paterno,
                 "ap_materno": apellido_materno,
-                "rol": rol,
+                "rol": rol_trab,
                 "id": trabajador_id
             }
         )
-
         db.commit()
 
     return {"ok": True}
@@ -212,7 +183,7 @@ def actualizar_trabajador(trabajador_id: int, data: dict):
 # OBTENER TRABAJADOR POR ID
 # ==================================================
 @router.get("/{trabajador_id}")
-def obtener_trabajador(trabajador_id: int):
+def obtener_trabajador(trabajador_id: int, user: dict = Depends(get_current_user)):
     with SessionLocal() as db:
         row = db.execute(
             text("""
@@ -234,32 +205,27 @@ def obtener_trabajador(trabajador_id: int):
         ).mappings().first()
 
         if not row:
-            raise HTTPException(
-                status_code=404,
-                detail="Trabajador no encontrado"
-            )
+            raise HTTPException(status_code=404, detail="Trabajador no encontrado")
 
         return dict(row)
-
 
 # ==================================================
 # DESACTIVAR TRABAJADOR (SOFT DELETE)
 # ==================================================
 @router.delete("/{trabajador_id}")
-def desactivar_trabajador(trabajador_id: int):
+def desactivar_trabajador(trabajador_id: int, user: dict = Depends(get_current_user)):
+
+    if (user.get("rol") or "").upper() not in ("ROOT", "SUPERVISOR"):
+        raise HTTPException(status_code=403, detail="Permiso insuficiente")
+
     with SessionLocal() as db:
         result = db.execute(
-            text(""" UPDATE trabajadores
-                SET activo = false
-                WHERE id = :id """),
+            text("UPDATE trabajadores SET activo = false WHERE id = :id"),
             {"id": trabajador_id}
         )
 
         if result.rowcount == 0:
-            raise HTTPException(
-                status_code=404,
-                detail="Trabajador no encontrado"
-            )
+            raise HTTPException(status_code=404, detail="Trabajador no encontrado")
 
         db.commit()
 
