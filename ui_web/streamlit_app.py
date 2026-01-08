@@ -109,6 +109,11 @@ if "modo_offline_trab" not in st.session_state:
 if "reniec_error" not in st.session_state:
     st.session_state.reniec_error = None
 
+# Lote activo (para reportes)
+if "active_lote_codigo" not in st.session_state:
+    st.session_state.active_lote_codigo = ""
+
+
 # Edit modal state
 if "edit_trabajador_id" not in st.session_state:
     st.session_state.edit_trabajador_id = None
@@ -846,38 +851,103 @@ if "🖨️ Impresoras" in tabs:
         st.subheader("Configuración de impresoras")
 
 # ======================================================
-# TAB: REPORTES
+# TAB: REPORTES (por lote)
 # ======================================================
 if "📊 Reportes" in tabs:
     with tab_objs[tabs.index("📊 Reportes")]:
-        st.subheader("Reportes por DNI")
+        st.subheader("Reportes por DNI (por lote)")
 
         jwt = get_jwt()
         rol_rep = (st.session_state.auth.get("rol") or "").upper()
         headers = {"Authorization": f"Bearer {jwt}"} if jwt else {}
 
+        # ---- traer lotes para el combobox ----
+        lotes_items = []
+        try:
+            r_lotes = api_get("/lotes", params={"limit": 200})
+            if r_lotes.status_code == 200:
+                lotes_items = (r_lotes.json() or {}).get("items", []) or []
+        except Exception:
+            lotes_items = []
+
+        # Armar opciones visibles
+        # Ej: "1234-2026 [ABIERTO]" y guardar el codigo real aparte
+        opciones = []
+        codigo_por_label = {}
+        for it in lotes_items:
+            c = (it.get("codigo") or "").strip().upper()
+            e = (it.get("estado") or "ABIERTO").strip().upper()
+            if not c:
+                continue
+            label = f"{c} [{e}]"
+            opciones.append(label)
+            codigo_por_label[label] = c
+
+        # Ordenar: si tienes 'creado_en' y quieres más recientes arriba:
+        # (si no existe, igual funciona)
+        try:
+            opciones = sorted(
+                opciones,
+                key=lambda lab: next(
+                    (x.get("creado_en") for x in lotes_items if (x.get("codigo") or "").strip().upper() == codigo_por_label.get(lab)),
+                    ""
+                ),
+                reverse=True
+            )
+        except Exception:
+            pass
+
+        # ---- UI selección lote ----
+        colA, colB = st.columns([1.3, 2])
+        with colA:
+            if not opciones:
+                st.warning("No hay lotes para seleccionar. Cree uno en la pestaña 📦 Lotes.")
+                selected_label = None
+            else:
+                selected_label = st.selectbox(
+                    "Selecciona lote",
+                    opciones,
+                    index=0,
+                    key="rep_lote_select",
+                )
+
+        with colB:
+            st.caption("Se listan automáticamente los lotes del servidor. Crea/cierra/reabre en 📦 Lotes.")
+
+        lote_codigo = ""
+        if selected_label:
+            lote_codigo = codigo_por_label.get(selected_label, "").strip().upper()
+
+        # ---- filtros de fecha / producto / scanned_by ----
         c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
         with c1:
-            f_ini = st.date_input("Desde")
+            f_ini = st.date_input("Desde", key="rep_f_ini")
         with c2:
-            f_fin = st.date_input("Hasta")
+            f_fin = st.date_input("Hasta", key="rep_f_fin")
         with c3:
-            producto = st.text_input("Producto (opcional)", value="")
+            producto = st.text_input("Producto (opcional)", value="", key="rep_producto")
         with c4:
             scanned_by = ""
             if rol_rep in ("ROOT", "SUPERVISOR"):
-                scanned_by = st.text_input("Usuario que escaneó (opcional)", value="")
+                scanned_by = st.text_input("Usuario que escaneó (opcional)", value="", key="rep_scanned_by")
 
         from_dt = f"{f_ini.isoformat()}T00:00:00Z"
         to_dt = f"{(f_fin + timedelta(days=1)).isoformat()}T00:00:00Z"
 
-        params = {"date_from": from_dt, "date_to": to_dt}
+        params = {
+            "date_from": from_dt,
+            "date_to": to_dt,
+            "lote_codigo": lote_codigo,  # ✅ ahora por lote
+        }
         if producto.strip():
             params["producto"] = producto.strip()
         if rol_rep in ("ROOT", "SUPERVISOR") and scanned_by.strip():
             params["scanned_by"] = scanned_by.strip()
 
-        if st.button("Generar reporte", type="primary"):
+        # Botón deshabilitado si no hay lote seleccionado
+        btn_disabled = not bool(lote_codigo)
+
+        if st.button("Generar reporte", type="primary", disabled=btn_disabled):
             r = requests.get(f"{API}/reports/dni-summary", params=params, headers=headers, timeout=20)
             if r.status_code != 200:
                 st.error("Error en /reports/dni-summary")
@@ -885,6 +955,10 @@ if "📊 Reportes" in tabs:
             else:
                 data = r.json()
                 tot = data.get("totals", {}) or {}
+
+                # Info del lote devuelto por el backend (si lo incluyes en response)
+                if data.get("lote_codigo"):
+                    st.caption(f"Lote: {data.get('lote_codigo')} | Estado: {data.get('lote_estado')}")
 
                 m1, m2, m3 = st.columns(3)
                 m1.metric("Total lecturas", int(tot.get("total_lecturas", 0)))
@@ -896,6 +970,7 @@ if "📊 Reportes" in tabs:
                     st.info("Sin datos.")
                 else:
                     st.dataframe(df, width="stretch")
+
 
 # ======================================================
 # TAB: LOTES
@@ -948,6 +1023,31 @@ if "📦 Lotes" in tabs:
                 else:
                     st.error(f"Error {r.status_code}")
                     st.code(r.text)
+
+                b1, b2 = st.columns([1, 3])
+                with b1:
+                    if st.button("✅ Usar como lote activo"):
+                        if not codigo:
+                            st.warning("Ingrese un código")
+                        else:
+                            # opcional: validar en servidor que exista
+                            rr = api_get("/lotes", params={"limit": 200})
+                            if rr.status_code == 200:
+                                items = (rr.json() or {}).get("items", [])
+                                existe = any((it.get("codigo") or "").strip().upper() == codigo for it in items)
+                                if not existe:
+                                    st.warning("Ese lote no aparece en la lista. Cree/asegure primero.")
+                                else:
+                                    st.session_state.active_lote_codigo = codigo
+                                    st.success(f"Lote activo: {codigo}")
+                            else:
+                                # si no puede listar, igual setea localmente
+                                st.session_state.active_lote_codigo = codigo
+                                st.success(f"Lote activo: {codigo} (sin validar)")
+                with b2:
+                    activo = (st.session_state.get("active_lote_codigo") or "").strip().upper()
+                    st.caption(f"Lote activo actual: **{activo or '-'}**")
+
 
         st.divider()
         st.markdown("### Últimos lotes")
