@@ -18,6 +18,7 @@ from app.api import (
     routes_reniec,
     routes_scans,
     routes_reports,
+    routes_lotes,
 )
 
 app = FastAPI(title="QR Producción")
@@ -34,4 +35,5 @@ app.include_router(routes_impresoras.router)
 app.include_router(routes_reniec.router)
 app.include_router(routes_scans.router)
 app.include_router(routes_reports.router)
+app.include_router(routes_lotes.router)
 

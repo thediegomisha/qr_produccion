@@ -40,6 +40,19 @@ def auth_headers() -> dict:
         return {}
     return {"Authorization": f"Bearer {jwt}"}
 
+def api_get(path: str, params: dict | None = None):
+    base = globals().get("API") or st.session_state.get("API")
+    if not base:
+        raise RuntimeError("Falta API (define API = 'http://...' o st.session_state['API'])")
+    url = base.rstrip("/") + path
+    return requests.get(url, params=params, headers=auth_headers(), timeout=30)
+
+def api_post(path: str, json: dict | None = None):
+    base = globals().get("API") or st.session_state.get("API")
+    if not base:
+        raise RuntimeError("Falta API (define API = 'http://...' o st.session_state['API'])")
+    url = base.rstrip("/") + path
+    return requests.post(url, json=json, headers=auth_headers(), timeout=30)
 
 LOGIN_IMG_B64 = _img_to_base64("logoappqr.png")
 
@@ -297,9 +310,9 @@ if st.sidebar.button("Cerrar sesión"):
 # TABS POR ROL
 # --------------------------------------------------
 if rol == "ROOT":
-    tabs = ["Usuarios", "Listar", "🖨️ Impresión", "👤 Trabajadores", "🖨️ Impresoras", "📊 Reportes"]
+    tabs = ["Usuarios", "Listar", "🖨️ Impresión", "👤 Trabajadores", "🖨️ Impresoras", "📊 Reportes","📦 Lotes"]
 elif rol == "SUPERVISOR":
-    tabs = ["Listar", "🖨️ Impresión", "👤 Trabajadores", "🖨️ Impresoras", "📊 Reportes"]
+    tabs = ["Listar", "🖨️ Impresión", "👤 Trabajadores", "🖨️ Impresoras", "📊 Reportes","📦 Lotes"]
 else:
     tabs = ["🖨️ Impresión"]
 
@@ -883,4 +896,70 @@ if "📊 Reportes" in tabs:
                     st.info("Sin datos.")
                 else:
                     st.dataframe(df, width="stretch")
+
+# ======================================================
+# TAB: LOTES
+# ======================================================
+if "📦 Lotes" in tabs:
+    with tab_objs[tabs.index("📦 Lotes")]:
+        st.subheader("Gestión de lotes")
+
+        rol_lotes = (st.session_state.auth.get("rol") or "").upper()
+
+        c1, c2 = st.columns([1.2, 1])
+        with c1:
+            codigo = st.text_input("Código de lote (ej: 1234-2026)", value="").strip().upper()
+        with c2:
+            st.caption("Estado se controla en el servidor")
+
+        a1, a2, a3 = st.columns(3)
+
+        if a1.button("Crear / Asegurar lote", type="primary"):
+            if not codigo:
+                st.warning("Ingrese un código")
+            else:
+                r = api_post("/lotes/ensure", json={"codigo": codigo})
+                if r.status_code == 200:
+                    st.success(f"OK: {r.json().get('codigo')} ({r.json().get('estado')})")
+                else:
+                    st.error(f"Error {r.status_code}")
+                    st.code(r.text)
+
+        if a2.button("Cerrar lote"):
+            if not codigo:
+                st.warning("Ingrese un código")
+            else:
+                r = api_post(f"/lotes/{codigo}/close")
+                if r.status_code == 200:
+                    st.success(f"Lote {codigo} cerrado")
+                else:
+                    st.error(f"Error {r.status_code}")
+                    st.code(r.text)
+
+        if a3.button("Reabrir lote (ROOT)"):
+            if rol_lotes != "ROOT":
+                st.error("Solo ROOT puede reabrir")
+            elif not codigo:
+                st.warning("Ingrese un código")
+            else:
+                r = api_post(f"/lotes/{codigo}/open")
+                if r.status_code == 200:
+                    st.success(f"Lote {codigo} reabierto")
+                else:
+                    st.error(f"Error {r.status_code}")
+                    st.code(r.text)
+
+        st.divider()
+        st.markdown("### Últimos lotes")
+        r = api_get("/lotes", params={"limit": 50})
+        if r.status_code == 200:
+            items = (r.json() or {}).get("items", [])
+            df = pd.DataFrame(items)
+            if df.empty:
+                st.info("No hay lotes")
+            else:
+                st.dataframe(df, width="stretch")
+        else:
+            st.error(f"No se pudo listar lotes ({r.status_code})")
+
 
