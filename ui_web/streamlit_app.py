@@ -851,7 +851,7 @@ if "🖨️ Impresoras" in tabs:
         st.subheader("Configuración de impresoras")
 
 # ======================================================
-# TAB: REPORTES (por lote)
+# TAB: REPORTES (por lote) - SIN FECHAS
 # ======================================================
 if "📊 Reportes" in tabs:
     with tab_objs[tabs.index("📊 Reportes")]:
@@ -867,11 +867,12 @@ if "📊 Reportes" in tabs:
             r_lotes = api_get("/lotes", params={"limit": 200})
             if r_lotes.status_code == 200:
                 lotes_items = (r_lotes.json() or {}).get("items", []) or []
-        except Exception:
-            lotes_items = []
+            else:
+                st.warning(f"No se pudo cargar lotes ({r_lotes.status_code})")
+        except Exception as e:
+            st.warning(f"Error cargando lotes: {e}")
 
-        # Armar opciones visibles
-        # Ej: "1234-2026 [ABIERTO]" y guardar el codigo real aparte
+        # ---- opciones selectbox ----
         opciones = []
         codigo_por_label = {}
         for it in lotes_items:
@@ -882,20 +883,6 @@ if "📊 Reportes" in tabs:
             label = f"{c} [{e}]"
             opciones.append(label)
             codigo_por_label[label] = c
-
-        # Ordenar: si tienes 'creado_en' y quieres más recientes arriba:
-        # (si no existe, igual funciona)
-        try:
-            opciones = sorted(
-                opciones,
-                key=lambda lab: next(
-                    (x.get("creado_en") for x in lotes_items if (x.get("codigo") or "").strip().upper() == codigo_por_label.get(lab)),
-                    ""
-                ),
-                reverse=True
-            )
-        except Exception:
-            pass
 
         # ---- UI selección lote ----
         colA, colB = st.columns([1.3, 2])
@@ -912,43 +899,42 @@ if "📊 Reportes" in tabs:
                 )
 
         with colB:
-            st.caption("Se listan automáticamente los lotes del servidor. Crea/cierra/reabre en 📦 Lotes.")
+            st.caption("Reportes ahora se generan SIN fecha. Se filtra solo por lote y filtros opcionales.")
 
         lote_codigo = ""
         if selected_label:
-            lote_codigo = codigo_por_label.get(selected_label, "").strip().upper()
+            lote_codigo = (codigo_por_label.get(selected_label) or "").strip().upper()
 
-        # ---- filtros de fecha / producto / scanned_by ----
-        c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
+        # ---- filtros opcionales ----
+        c1, c2 = st.columns([1, 1])
         with c1:
-            f_ini = st.date_input("Desde", key="rep_f_ini")
-        with c2:
-            f_fin = st.date_input("Hasta", key="rep_f_fin")
-        with c3:
             producto = st.text_input("Producto (opcional)", value="", key="rep_producto")
-        with c4:
+        with c2:
             scanned_by = ""
             if rol_rep in ("ROOT", "SUPERVISOR"):
                 scanned_by = st.text_input("Usuario que escaneó (opcional)", value="", key="rep_scanned_by")
 
-        from_dt = f"{f_ini.isoformat()}T00:00:00Z"
-        to_dt = f"{(f_fin + timedelta(days=1)).isoformat()}T00:00:00Z"
-
-        params = {
-            "date_from": from_dt,
-            "date_to": to_dt,
-            "lote_codigo": lote_codigo,  # ✅ ahora por lote
-        }
+        # ---- params al backend (SIN fechas) ----
+        params = {"lote_codigo": lote_codigo}
         if producto.strip():
             params["producto"] = producto.strip()
         if rol_rep in ("ROOT", "SUPERVISOR") and scanned_by.strip():
             params["scanned_by"] = scanned_by.strip()
 
-        # Botón deshabilitado si no hay lote seleccionado
         btn_disabled = not bool(lote_codigo)
 
-        if st.button("Generar reporte", type="primary", disabled=btn_disabled):
-            r = requests.get(f"{API}/reports/dni-summary", params=params, headers=headers, timeout=20)
+        b1, b2 = st.columns(2)
+
+        # -------------------------
+        # DNI SUMMARY
+        # -------------------------
+        if b1.button("Generar reporte DNI", type="primary", disabled=btn_disabled):
+            r = requests.get(
+                f"{API}/reports/dni-summary",
+                params=params,
+                headers=headers,
+                timeout=20
+            )
             if r.status_code != 200:
                 st.error("Error en /reports/dni-summary")
                 st.code(r.text)
@@ -956,9 +942,7 @@ if "📊 Reportes" in tabs:
                 data = r.json()
                 tot = data.get("totals", {}) or {}
 
-                # Info del lote devuelto por el backend (si lo incluyes en response)
-                if data.get("lote_codigo"):
-                    st.caption(f"Lote: {data.get('lote_codigo')} | Estado: {data.get('lote_estado')}")
+                st.caption(f"Lote: {data.get('lote_codigo') or lote_codigo}")
 
                 m1, m2, m3 = st.columns(3)
                 m1.metric("Total lecturas", int(tot.get("total_lecturas", 0)))
@@ -970,6 +954,30 @@ if "📊 Reportes" in tabs:
                     st.info("Sin datos.")
                 else:
                     st.dataframe(df, width="stretch")
+
+        # -------------------------
+        # OPERATOR SUMMARY (opcional)
+        # -------------------------
+        if b2.button("Generar reporte Operadores", disabled=btn_disabled):
+            r = requests.get(
+                f"{API}/reports/operator-summary",
+                params=params,
+                headers=headers,
+                timeout=20
+            )
+            if r.status_code != 200:
+                st.error("Error en /reports/operator-summary")
+                st.code(r.text)
+            else:
+                data = r.json()
+                st.caption(f"Lote: {data.get('lote_codigo') or lote_codigo}")
+
+                df = pd.DataFrame(data.get("rows", []))
+                if df.empty:
+                    st.info("Sin datos.")
+                else:
+                    st.dataframe(df, width="stretch")
+
 
 
 # ======================================================

@@ -84,19 +84,11 @@ def _resolve_lote(db, lote_codigo: Optional[str]) -> Tuple[Optional[int], Option
 # -------------------------
 @router.get("/dni-summary")
 def dni_summary(
-    date_from: str = Query(..., description="ISO 8601, ej: 2026-01-03T00:00:00Z"),
-    date_to: str = Query(..., description="ISO 8601, ej: 2026-01-04T00:00:00Z"),
     producto: Optional[str] = Query(None, description="Ej: UVA"),
     scanned_by: Optional[str] = Query(None, description="user_id que escaneó (solo ROOT/SUPERVISOR)"),
     lote_codigo: Optional[str] = Query(None, description="Código de lote, ej: 1234-2026"),
     user=Depends(get_current_user),
 ):
-
-    dt_from = _to_dt(date_from)
-    dt_to = _to_dt(date_to)
-    if dt_to <= dt_from:
-        raise HTTPException(400, "date_to debe ser mayor a date_from")
-
     producto = _clean_optional(producto)
     scanned_by_eff = _effective_user_filter(user, scanned_by)
     lote_codigo = _clean_optional(lote_codigo)
@@ -108,70 +100,58 @@ def dni_summary(
       COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[A-Za-z]+$') AS sel_lecturas
     FROM scan_events se
     LEFT JOIN lotes l ON l.id = se.lote_id
-    WHERE se.scanned_at >= :dt_from
-      AND se.scanned_at <  :dt_to
-      AND se.raw IS NOT NULL
+    WHERE se.raw IS NOT NULL
       AND (se.raw->>'id') IS NOT NULL
       AND (:producto IS NULL OR se.raw->>'p' = :producto)
       AND (:scanned_by IS NULL OR se.user_id = :scanned_by)
       AND (:lote_id IS NULL OR se.lote_id = :lote_id)
     ;
-""")
-
-
-    rows_sql = text("""
-        SELECT
-        se.dni,
-        COALESCE(
-            NULLIF(
-            TRIM(
-                t.apellido_paterno || ' ' ||
-                COALESCE(t.apellido_materno, '') || ' ' ||
-                COALESCE(t.nombre, '')
-            ),
-            ''
-            ),
-            'SIN REGISTRO'
-        ) AS persona,
-        COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[0-9]+$') AS empacador,
-        COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[A-Za-z]+$') AS seleccionador,
-        COUNT(*) AS total
-        FROM scan_events se
-        LEFT JOIN lotes l ON l.id = se.lote_id
-        LEFT JOIN trabajadores t
-        ON TRIM(t.dni) = TRIM(se.dni)
-        AND t.activo = true
-        WHERE se.scanned_at >= :dt_from
-        AND se.scanned_at <  :dt_to
-        AND se.raw IS NOT NULL
-        AND (se.raw->>'id') IS NOT NULL
-        AND (:producto IS NULL OR se.raw->>'p' = :producto)
-        AND (:scanned_by IS NULL OR se.user_id = :scanned_by)
-        AND (:lote_id IS NULL OR se.lote_id = :lote_id)
-        GROUP BY se.dni, persona
-        ORDER BY total DESC;
     """)
 
-
+    rows_sql = text("""
+    SELECT
+      se.dni,
+      COALESCE(
+        NULLIF(
+          TRIM(
+            t.apellido_paterno || ' ' ||
+            COALESCE(t.apellido_materno, '') || ' ' ||
+            COALESCE(t.nombre, '')
+          ),
+          ''
+        ),
+        'SIN REGISTRO'
+      ) AS persona,
+      COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[0-9]+$') AS empacador,
+      COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[A-Za-z]+$') AS seleccionador,
+      COUNT(*) AS total
+    FROM scan_events se
+    LEFT JOIN lotes l ON l.id = se.lote_id
+    LEFT JOIN trabajadores t
+      ON TRIM(t.dni) = TRIM(se.dni)
+     AND t.activo = true
+    WHERE se.raw IS NOT NULL
+      AND (se.raw->>'id') IS NOT NULL
+      AND (:producto IS NULL OR se.raw->>'p' = :producto)
+      AND (:scanned_by IS NULL OR se.user_id = :scanned_by)
+      AND (:lote_id IS NULL OR se.lote_id = :lote_id)
+    GROUP BY se.dni, persona
+    ORDER BY total DESC;
+    """)
 
     with SessionLocal() as db:
-        lote_id, lote_codigo_db, lote_estado = _resolve_lote(db, lote_codigo)
+        lote_id, _, _ = _resolve_lote(db, lote_codigo)
 
         params = {
-            "dt_from": dt_from,
-            "dt_to": dt_to,
             "producto": producto,
             "scanned_by": scanned_by_eff,
             "lote_id": lote_id,
         }
 
-
         totals = db.execute(totals_sql, params).mappings().first() or {}
         rows = db.execute(rows_sql, params).mappings().all()
 
     return {
-        "date_from": dt_from.isoformat().replace("+00:00", "Z"),
-        "date_to": dt_to.isoformat().replace("+00:00", "Z"),
         "producto": producto,
         "scanned_by": scanned_by_eff,
         "lote_codigo": lote_codigo,
@@ -186,56 +166,42 @@ def dni_summary(
 # -------------------------
 @router.get("/operator-summary")
 def operator_summary(
-    date_from: str = Query(...),
-    date_to: str = Query(...),
     producto: Optional[str] = Query(None),
     scanned_by: Optional[str] = Query(None),
     lote_codigo: Optional[str] = Query(None),
     user=Depends(get_current_user),
 ):
-    dt_from = _to_dt(date_from)
-    dt_to = _to_dt(date_to)
-    if dt_to <= dt_from:
-        raise HTTPException(400, "date_to debe ser mayor a date_from")
-
     producto = _clean_optional(producto)
     scanned_by_eff = _effective_user_filter(user, scanned_by)
     lote_codigo = _clean_optional(lote_codigo)
 
     sql = text("""
-        SELECT
-        se.user_id,
-        COUNT(*)::int AS total,
-        COUNT(DISTINCT se.dni)::int AS dnis_distintos,
-        MAX(se.scanned_at) AS ultima_lectura
-        FROM scan_events se
-        LEFT JOIN lotes l ON l.id = se.lote_id
-        WHERE se.scanned_at >= :dt_from
-        AND se.scanned_at <  :dt_to
-        AND (:producto IS NULL OR se.raw->>'p' = :producto)
-        AND (:scanned_by IS NULL OR se.user_id = :scanned_by)
-        AND (:lote_id IS NULL OR se.lote_id = :lote_id)
-        GROUP BY se.user_id
-        ORDER BY total DESC, ultima_lectura DESC;
+    SELECT
+      se.user_id,
+      COUNT(*)::int AS total,
+      COUNT(DISTINCT se.dni)::int AS dnis_distintos,
+      MAX(se.scanned_at) AS ultima_lectura
+    FROM scan_events se
+    LEFT JOIN lotes l ON l.id = se.lote_id
+    WHERE (:producto IS NULL OR se.raw->>'p' = :producto)
+      AND (:scanned_by IS NULL OR se.user_id = :scanned_by)
+      AND (:lote_id IS NULL OR se.lote_id = :lote_id)
+    GROUP BY se.user_id
+    ORDER BY total DESC, ultima_lectura DESC;
     """)
 
-
     with SessionLocal() as db:
-        lote_id, lote_codigo_db, lote_estado = _resolve_lote(db, lote_codigo)
+        lote_id, _, _ = _resolve_lote(db, lote_codigo)
         rows = db.execute(sql, {
-            "dt_from": dt_from,
-            "dt_to": dt_to,
             "producto": producto,
             "scanned_by": scanned_by_eff,
             "lote_id": lote_id,
         }).mappings().all()
 
-
     return {
-        "date_from": dt_from.isoformat().replace("+00:00", "Z"),
-        "date_to": dt_to.isoformat().replace("+00:00", "Z"),
         "producto": producto,
         "scanned_by": scanned_by_eff,
         "lote_codigo": lote_codigo,
         "rows": [dict(r) for r in rows],
     }
+
