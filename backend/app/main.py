@@ -21,7 +21,7 @@ from app.api import (
     routes_lotes,
 )
 
-app = FastAPI(title="QR Producción")
+app = FastAPI(title="QR Producción", root_path="/api")
 init_db()
 
 app.include_router(routes_setup.router)

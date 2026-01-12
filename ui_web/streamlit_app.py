@@ -54,6 +54,14 @@ def api_post(path: str, json: dict | None = None):
     url = base.rstrip("/") + path
     return requests.post(url, json=json, headers=auth_headers(), timeout=30)
 
+def api_put(path: str, json: dict | None = None):
+    base = globals().get("API") or st.session_state.get("API")
+    if not base:
+        raise RuntimeError("Falta API")
+    url = base.rstrip("/") + path
+    return requests.put(url, json=json, headers=auth_headers(), timeout=30)
+
+
 LOGIN_IMG_B64 = _img_to_base64("logoappqr.png")
 
 def flash_set(tab: str, kind: str, msg: str):
@@ -112,6 +120,15 @@ if "reniec_error" not in st.session_state:
 # Lote activo (para reportes)
 if "active_lote_codigo" not in st.session_state:
     st.session_state.active_lote_codigo = ""
+
+    # Edit modal state (Usuarios)
+if "edit_user_usuario" not in st.session_state:
+    st.session_state.edit_user_usuario = None
+if "show_user_modal" not in st.session_state:
+    st.session_state.show_user_modal = False
+if "_edit_user_row" not in st.session_state:
+    st.session_state._edit_user_row = None
+
 
 
 # Edit modal state
@@ -314,77 +331,203 @@ if st.sidebar.button("Cerrar sesión"):
 # --------------------------------------------------
 # TABS POR ROL
 # --------------------------------------------------
-if rol == "ROOT":
-    tabs = ["Usuarios", "Listar", "🖨️ Impresión", "👤 Trabajadores", "🖨️ Impresoras", "📊 Reportes","📦 Lotes"]
+if rol in ("ROOT", "GERENCIA"):
+    tabs = ["Usuarios", "Listar", "🖨️ Impresión", "👤 Trabajadores", "🖨️ Impresoras", "📊 Reportes", "📦 Lotes"]
 elif rol == "SUPERVISOR":
-    tabs = ["Listar", "🖨️ Impresión", "👤 Trabajadores", "🖨️ Impresoras", "📊 Reportes","📦 Lotes"]
+    tabs = ["Listar", "🖨️ Impresión", "👤 Trabajadores", "🖨️ Impresoras", "📊 Reportes", "📦 Lotes"]
 else:
     tabs = ["🖨️ Impresión"]
 
 tab_objs = st.tabs(tabs)
 
 # ======================================================
-# TAB: USUARIOS (solo ROOT)
+# TAB: USUARIOS (ROOT y GERENCIA) - LISTAR + CREAR + EDIT MODAL
 # ======================================================
 if "Usuarios" in tabs:
     with tab_objs[tabs.index("Usuarios")]:
         flash_show("Usuarios")
         st.subheader("Administración de usuarios del sistema")
-        st.markdown("### Crear nuevo usuario")
 
-        # ✅ DEBUG (temporal)
-        st.caption(f"ROL actual: {rol}")
-        st.caption(f"JWT prefijo: {(get_jwt() or '')[:25]}")
-
-        if rol != "ROOT":
-            st.error("Solo ROOT puede crear usuarios.")
+        if rol not in ("ROOT", "GERENCIA"):
+            st.error("No tienes permisos para administrar usuarios.")
             st.stop()
 
-        col1, col2 = st.columns(2)
-        with col1:
-            nuevo_usuario = st.text_input("Usuario (login)", key="new_user_username")
-            nombre_user = st.text_input("Nombre completo", key="new_user_full_name")
-        with col2:
-            password_user = st.text_input("Contraseña", type="password", key="new_user_password")
-            rol_nuevo = st.selectbox("Rol", ["SUPERVISOR", "OPERADOR"], key="new_user_role")
+        # ----------------------------
+        # LISTAR USUARIOS + SELECCIÓN (✏️)
+        # ----------------------------
+        st.markdown("### Usuarios registrados")
 
-        if st.button("Crear usuario"):
-            if not nuevo_usuario or not password_user or not nombre_user:
-                st.warning("Complete todos los campos")
-                st.stop()
+        r_list = api_get("/admin/usuarios")
+        if r_list.status_code != 200:
+            st.error("No se pudo listar usuarios")
+            st.code(r_list.text)
+            st.stop()
 
-            # ✅ headers con Bearer usando helper
-            hdrs = auth_headers()
+        users = (r_list.json() or {}).get("items", []) or []
+        df_users = pd.DataFrame(users)
 
-            # ✅ DEBUG (temporal)
-            st.write("Headers enviados:", hdrs)
+        if df_users.empty:
+            st.info("No hay usuarios.")
+        else:
+            # índice estable (evita que selecciones edite mal)
+            df_ui = df_users.reset_index(drop=True).copy()
+            df_ui["creado_en"] = df_ui.get("creado_en", "-").fillna("-")
 
-            if not hdrs:
-                st.error("No hay token en sesión. Cierra sesión e ingresa nuevamente.")
-                st.stop()
+            # checkbox editor
+            df_ui["✏️"] = False
 
-            r = requests.post(
-                f"{API}/admin/usuarios",  
-                headers=hdrs,
-                json={
-                    "usuario": nuevo_usuario,
-                    "nombre": nombre_user,
-                    "password": password_user,
-                    "rol": rol_nuevo
-                },
-                timeout=10
+            cols_show = ["✏️", "usuario", "nombre", "rol", "activo", "creado_en"]
+
+            edited = st.data_editor(
+                df_ui[cols_show],
+                hide_index=True,
+                num_rows="fixed",
+                disabled=[c for c in cols_show if c != "✏️"],
+                width="stretch",
+                key="tabla_usuarios_editar"
             )
 
-            # ✅ DEBUG SIEMPRE
-            st.write("STATUS:", r.status_code)
-            st.code(r.text)
+            seleccionados = edited[edited["✏️"] == True]
 
-            if r.status_code == 200:
+            # comportamiento igual a Trabajadores
+            if len(seleccionados) == 1:
+                fila_idx = int(seleccionados.index[0])  # por reset_index(drop=True)
+                user_row = df_ui.iloc[fila_idx].to_dict()
+
+                usuario_id = user_row["usuario"]
+                rol_target = str(user_row.get("rol") or "").upper()
+
+                # Regla: GERENCIA no edita ROOT/GERENCIA (seguridad + UX)
+                if rol == "GERENCIA" and rol_target in ("ROOT", "GERENCIA"):
+                    st.warning("GERENCIA no puede editar usuarios ROOT o GERENCIA.")
+                    st.session_state.show_user_modal = False
+                    st.session_state.edit_user_usuario = None
+                    st.session_state._edit_user_row = None
+                else:
+                    st.session_state.edit_user_usuario = usuario_id
+                    st.session_state.show_user_modal = True
+                    st.session_state._edit_user_row = user_row
+            else:
+                st.session_state.show_user_modal = False
+                st.session_state.edit_user_usuario = None
+                st.session_state._edit_user_row = None
+
+        st.divider()
+
+        # ----------------------------
+        # CREAR USUARIO
+        # ROOT: puede crear SUPERVISOR/OPERADOR/GERENCIA
+        # GERENCIA: solo SUPERVISOR/OPERADOR (backend debe bloquear GERENCIA->GERENCIA igual)
+        # ----------------------------
+        st.markdown("### Crear nuevo usuario")
+
+        roles_create = ["SUPERVISOR", "OPERADOR"]
+        if rol == "ROOT":
+            roles_create = ["SUPERVISOR", "OPERADOR", "GERENCIA"]
+
+        c1, c2 = st.columns(2)
+        with c1:
+            nuevo_usuario = st.text_input("Usuario (login)", key="new_user_username")
+            nombre_user = st.text_input("Nombre completo", key="new_user_full_name")
+        with c2:
+            password_user = st.text_input("Contraseña", type="password", key="new_user_password")
+            rol_nuevo = st.selectbox("Rol", roles_create, key="new_user_role")
+
+        if st.button("Crear usuario", key="btn_crear_usuario"):
+            if not nuevo_usuario.strip() or not nombre_user.strip() or not password_user.strip():
+                flash_set("Usuarios", "err", "Complete todos los campos")
+                st.rerun()
+
+            r_create = api_post("/admin/usuarios", json={
+                "usuario": nuevo_usuario.strip(),
+                "nombre": nombre_user.strip(),
+                "password": password_user.strip(),
+                "rol": rol_nuevo
+            })
+
+            if r_create.status_code == 200:
                 flash_set("Usuarios", "ok", "Usuario creado correctamente")
+
+                # limpiar inputs
+                for k in ("new_user_username", "new_user_full_name", "new_user_password", "new_user_role"):
+                    st.session_state.pop(k, None)
+
+                # limpiar selección tabla para evitar reabrir modal
+                st.session_state.pop("tabla_usuarios_editar", None)
                 st.rerun()
             else:
-                flash_set("Usuarios", "err", f"Error al crear usuario: {r.text}")
+                flash_set("Usuarios", "err", f"Error al crear usuario: {r_create.text}")
                 st.rerun()
+
+        # ----------------------------
+        # MODAL EDITAR USUARIO (igual a trabajadores)
+        # ----------------------------
+        if st.session_state.show_user_modal and st.session_state.edit_user_usuario:
+            usuario_id = st.session_state.edit_user_usuario
+            user_row = st.session_state._edit_user_row or {}
+
+            @st.dialog("Editar usuario")
+            def modal_editar_usuario():
+                with st.form(key=f"form_editar_usuario_{usuario_id}"):
+                    nombre_e = st.text_input("Nombre", value=user_row.get("nombre") or "")
+                    activo_e = st.checkbox("Activo", value=bool(user_row.get("activo", True)))
+
+                    # Roles editables
+                    roles_edit = ["SUPERVISOR", "OPERADOR", "GERENCIA"]
+                    if rol == "GERENCIA":
+                        roles_edit = ["SUPERVISOR", "OPERADOR"]
+
+                    current_rol = (user_row.get("rol") or "OPERADOR").upper()
+                    if current_rol not in roles_edit:
+                        current_rol = roles_edit[0]
+
+                    rol_e = st.selectbox("Rol", roles_edit, index=roles_edit.index(current_rol))
+
+                    st.markdown("#### Cambiar contraseña (opcional)")
+                    new_pass = st.text_input("Nueva contraseña", type="password")
+
+                    b1, b2 = st.columns(2)
+                    guardar = b1.form_submit_button("💾 Guardar")
+                    cancelar = b2.form_submit_button("❌ Cancelar")
+
+                if cancelar:
+                    st.session_state.show_user_modal = False
+                    st.session_state.edit_user_usuario = None
+                    st.session_state._edit_user_row = None
+                    st.session_state.pop("tabla_usuarios_editar", None)
+                    st.rerun()
+
+                if guardar:
+                    # 1) update datos generales
+                    r_upd = api_put(f"/admin/usuarios/{usuario_id}", json={
+                        "nombre": nombre_e.strip(),
+                        "rol": rol_e,
+                        "activo": activo_e
+                    })
+
+                    if r_upd.status_code != 200:
+                        st.error("Error actualizando usuario")
+                        st.code(r_upd.text)
+                        st.stop()
+
+                    # 2) update password si escribió algo
+                    if new_pass.strip():
+                        r_pwd = api_put(f"/admin/usuarios/{usuario_id}/password", json={
+                            "password": new_pass.strip()
+                        })
+                        if r_pwd.status_code != 200:
+                            st.error("Error cambiando contraseña")
+                            st.code(r_pwd.text)
+                            st.stop()
+
+                    flash_set("Usuarios", "ok", "Usuario actualizado")
+                    st.session_state.show_user_modal = False
+                    st.session_state.edit_user_usuario = None
+                    st.session_state._edit_user_row = None
+                    st.session_state.pop("tabla_usuarios_editar", None)
+                    st.rerun()
+
+            modal_editar_usuario()
 
 # ======================================================
 # TAB: LISTAR
@@ -1069,5 +1212,4 @@ if "📦 Lotes" in tabs:
                 st.dataframe(df, width="stretch")
         else:
             st.error(f"No se pudo listar lotes ({r.status_code})")
-
 

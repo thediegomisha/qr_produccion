@@ -1,26 +1,36 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from app.db.base import SessionLocal
-from app.core.session import get_rol
 from app.core.passwords import hash_password
+from app.core.auth_dep import get_current_user
 
 router = APIRouter(prefix="/admin")
 
 @router.post("/usuarios")
-def crear_usuario(data: dict):
-    if get_rol() != "ROOT":
-        raise HTTPException(403, "Solo ROOT puede crear usuarios")
+def crear_usuario(data: dict, user: dict = Depends(get_current_user)):
+    rol_actual = (user.get("rol") or "").upper()
 
-    usuario = data.get("usuario")
-    nombre = data.get("nombre")
-    password = data.get("password")
-    rol = data.get("rol")
+    # ROOT y GERENCIA pueden administrar (casi igual)
+    if rol_actual not in ("ROOT", "GERENCIA"):
+        raise HTTPException(403, "Solo ROOT o GERENCIA puede crear usuarios")
 
-    if not usuario or not nombre or not password:
+    usuario = (data.get("usuario") or "").strip()
+    nombre = (data.get("nombre") or "").strip()
+    password = (data.get("password") or "").strip()
+    rol_nuevo = (data.get("rol") or "").strip().upper()
+
+    if not usuario or not nombre or not password or not rol_nuevo:
         raise HTTPException(status_code=400, detail="Campos obligatorios incompletos")
-    if rol not in ("ROOT", "SUPERVISOR", "OPERADOR"):
+
+    # Roles permitidos en el sistema
+    ROLES_VALIDOS = ("ROOT", "GERENCIA", "SUPERVISOR", "OPERADOR")
+    if rol_nuevo not in ROLES_VALIDOS:
         raise HTTPException(status_code=400, detail="Rol inválido")
+
+    # Regla: solo ROOT puede crear GERENCIA (y recomendado: solo ROOT crea ROOT)
+    if rol_nuevo in ("GERENCIA", "ROOT") and rol_actual != "ROOT":
+        raise HTTPException(403, "Solo ROOT puede crear usuarios GERENCIA o ROOT")
 
     password_hash = hash_password(password)
 
@@ -35,7 +45,7 @@ def crear_usuario(data: dict):
                     "usuario": usuario,
                     "nombre": nombre,
                     "password_hash": password_hash,
-                    "rol": rol
+                    "rol": rol_nuevo
                 }
             )
             db.commit()
