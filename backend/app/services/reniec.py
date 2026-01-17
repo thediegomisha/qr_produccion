@@ -43,3 +43,21 @@ def consultar_dni(dni: str):
         "apellido_paterno": data.get("apellido_paterno"),
         "apellido_materno": data.get("apellido_materno"),
     }
+
+def consultar_dni_fullname(dni: str):
+    r = consultar_dni(dni)
+    if not r:
+        return None
+
+    nombres = (r.get("nombre") or "").strip()
+    ap_pat = (r.get("apellido_paterno") or "").strip()
+    ap_mat = (r.get("apellido_materno") or "").strip()
+
+    apellidos = " ".join([x for x in [ap_pat, ap_mat] if x]).strip()
+
+    return {
+        "dni": r.get("dni") or dni,
+        "nombres": nombres,
+        "apellidos": apellidos,
+        "fuente": "PERUDEVS",
+    }
