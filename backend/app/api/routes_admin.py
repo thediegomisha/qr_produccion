@@ -7,7 +7,7 @@ from app.core.auth_dep import get_current_user
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
-ROLES_VALIDOS = ("ROOT", "GERENCIA", "SUPERVISOR", "OPERADOR")
+ROLES_VALIDOS = ("ROOT", "GERENCIA", "SUPERVISOR", "OPERADOR", "AGENTE")
 
 
 def _rol(user: dict) -> str:

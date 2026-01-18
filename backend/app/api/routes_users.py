@@ -9,6 +9,7 @@ router = APIRouter(prefix="/admin")
 
 @router.post("/usuarios")
 def crear_usuario(data: dict, user: dict = Depends(get_current_user)):
+    
     rol_actual = (user.get("rol") or "").upper()
 
     # ROOT y GERENCIA pueden administrar (casi igual)
@@ -24,8 +25,10 @@ def crear_usuario(data: dict, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Campos obligatorios incompletos")
 
     # Roles permitidos en el sistema
-    ROLES_VALIDOS = ("ROOT", "GERENCIA", "SUPERVISOR", "OPERADOR")
+    ROLES_VALIDOS = ("ROOT", "GERENCIA", "SUPERVISOR", "OPERADOR", "AGENTE")
     if rol_nuevo not in ROLES_VALIDOS:
+      #  raise HTTPException(status_code=418, detail="BACKEND NUEVO - AGENTE ENABLED")
+
         raise HTTPException(status_code=400, detail="Rol inválido")
 
     # Regla: solo ROOT puede crear GERENCIA (y recomendado: solo ROOT crea ROOT)

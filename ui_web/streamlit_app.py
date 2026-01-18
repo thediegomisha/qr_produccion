@@ -19,7 +19,7 @@ st.set_page_config(
 BASE_DIR = Path(__file__).resolve().parent  # carpeta ui_web/
 ASSETS_DIR = BASE_DIR / "assets"
 
-API = "http://127.0.0.1:8000"
+API = "http://127.0.0.1:8000/api"
 
 # --------------------------------------------------
 # HELPERS
@@ -425,7 +425,7 @@ if "Usuarios" in tabs:
 
         roles_create = ["SUPERVISOR", "OPERADOR"]
         if rol == "ROOT":
-            roles_create = ["SUPERVISOR", "OPERADOR", "GERENCIA"]
+            roles_create = ["SUPERVISOR", "OPERADOR", "GERENCIA", "AGENTE"]
 
         c1, c2 = st.columns(2)
         with c1:
@@ -475,9 +475,9 @@ if "Usuarios" in tabs:
                     activo_e = st.checkbox("Activo", value=bool(user_row.get("activo", True)))
 
                     # Roles editables
-                    roles_edit = ["SUPERVISOR", "OPERADOR", "GERENCIA"]
+                    roles_edit = ["SUPERVISOR", "OPERADOR", "GERENCIA", "AGENTE"]
                     if rol == "GERENCIA":
-                        roles_edit = ["SUPERVISOR", "OPERADOR"]
+                        roles_edit = ["SUPERVISOR", "OPERADOR", "AGENTE"]
 
                     current_rol = (user_row.get("rol") or "OPERADOR").upper()
                     if current_rol not in roles_edit:
@@ -1288,7 +1288,7 @@ if TAB_VIG in tabs:
         # Solo consulta si hay 8 dígitos y cambió el DNI
         if len(dni) == 8 and dni != st.session_state.vig_preview.get("dni"):
             try:
-                resp = api_get(f"/vigilancia/persona/{dni}")
+                resp = api_get(f"/vigilancia/persona/?dni={dni}")
 
                 if resp.status_code == 200:
                     data = resp.json()
@@ -1308,7 +1308,7 @@ if TAB_VIG in tabs:
                         "offline": False,
                         "detail": resp.text
                     }
-                    st.error(f"Error en /vigilancia/persona/{dni}: {resp.status_code}")
+                    st.error(f"Error en /vigilancia/persona/?dni={dni}: {resp.status_code}")
                     st.code(resp.text)
 
             except Exception as e:
