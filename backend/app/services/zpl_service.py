@@ -61,7 +61,7 @@ def generar_zpl_qr_4cols(
     items,
     dpi: int = 203,
     label_mm: float = 25.0,
-    gap_mm: float = 2.0,
+    gap_mm: float = 1.0,
     margin_mm: float = 1.0,
     qr_mag: int = 3,   # 👈 empieza con 3 (como tu 1-col)
 ):
@@ -75,7 +75,7 @@ def generar_zpl_qr_4cols(
     total_h = label_h
 
     # Coordenada de inicio del QR dentro de cada etiqueta (igual a 1-col: ^FO0,2)
-    qr_y = 10
+    qr_y = 15
 
     # Layout base (tu etiqueta que sí funciona) para mag=3:
     # QR: ^FO0,2 ^BQN,2,3

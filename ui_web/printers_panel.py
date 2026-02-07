@@ -31,24 +31,24 @@ def _load_saved_selection() -> Dict[str, str]:
     except Exception:
         return {}
 
-def _save_selection(agent_url: str, printer_name: str) -> None:
+def _save_selection(agent_url: str, printer_name: str, agent_token: str) -> None:
     path = _persist_path()
-    payload = {"agent_url": agent_url, "printer_name": printer_name}
+    payload = {"agent_url": agent_url, "printer_name": printer_name, "agent_token": agent_token}
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
 
 # ============================
 # Bootstrap (para otras pestañas)
 # ============================
 def bootstrap_printer_selection() -> None:
-    """
-    Carga la selección guardada y la pone en st.session_state.
-    Llamar 1 vez después del login.
-    """
     saved = _load_saved_selection()
     if saved.get("printer_name") and not st.session_state.get("selected_printer_name"):
         st.session_state["selected_printer_name"] = saved["printer_name"]
     if saved.get("agent_url") and not st.session_state.get("selected_printer_agent_url"):
         st.session_state["selected_printer_agent_url"] = saved["agent_url"]
+    if saved.get("agent_token") and not st.session_state.get("selected_printer_agent_token"):
+        st.session_state["selected_printer_agent_token"] = saved["agent_token"]
+
 
 # ============================
 # Config agent (url/token)
@@ -161,10 +161,11 @@ def show_printers_panel():
     # Guardar en session_state para otras pestañas
     st.session_state["selected_printer_name"] = selected
     st.session_state["selected_printer_agent_url"] = agent_url
+    st.session_state["selected_printer_agent_token"] = agent_token
 
     # Persistir a disco
     if remember:
-        _save_selection(agent_url, selected)
+        _save_selection(agent_url, selected, agent_token)
 
     p = next((x for x in printers if x.get("name") == selected), printers[0])
     st.markdown("**Detalles de la impresora**")

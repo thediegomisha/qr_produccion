@@ -980,6 +980,8 @@ if "🖨️ Impresión" in tabs:
                         nn_value = trabajador_sel["num_orden"] if st.session_state.opcion_mostrar == "Número de orden" else trabajador_sel["cod_letra"]
 
                         try:
+                            selected_agent_token = st.session_state.get("selected_printer_agent_token")
+
                             r_print = requests.post(
                                 f"{API}/qr/print",
                                 json={
@@ -989,9 +991,12 @@ if "🖨️ Impresión" in tabs:
                                     "cantidad": st.session_state.cantidad,
                                     "printer": selected_printer,
                                     "agent_url": selected_agent_url,
+                                    "agent_token": selected_agent_token,  # 👈
                                 },
+                                headers=auth_headers(),  # 👈 recomendado
                                 timeout=15
                             )
+
                         except Exception as e:
                             st.error(f"Error enviando impresión: {e}")
                             st.stop()
