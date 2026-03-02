@@ -1,4 +1,7 @@
-/venv/
+# Python environments
+venv/
+.venv/
+
 # Secrets / env
 .env
 .env.*
@@ -7,9 +10,10 @@
 # Streamlit secrets
 .streamlit/secrets.toml
 
-# Python venv/cache
-venv/
+# Python cache/test artifacts
+.pytest_cache/
 __pycache__/
 *.pyc
 
-__pycache__
+# Local databases and runtime artifacts
+*.db

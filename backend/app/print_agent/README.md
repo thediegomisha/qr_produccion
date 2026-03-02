@@ -1,7 +1,7 @@
 ```markdown
 # Print Agent (FastAPI) - quick start
 
-Location: backend/print_agent
+Location: backend/app/print_agent
 
 1) Create and activate venv:
    python3 -m venv .venv
@@ -15,6 +15,9 @@ Location: backend/print_agent
    export AGENT_ID="agent-001"
    export PRINTERS_JSON='[{"name":"zebra1","type":"network","host":"192.168.1.50","port":9100}]'
    export DB_PATH="./print_agent_jobs.db"
+
+   # Windows only (if not installed automatically):
+   # pip install pywin32
 
 4) Run:
    uvicorn agent_app:app --host 0.0.0.0 --port 5000

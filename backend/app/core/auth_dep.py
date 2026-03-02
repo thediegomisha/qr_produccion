@@ -16,8 +16,12 @@ def get_current_user(authorization: str = Header(None)) -> dict:
 
     usuario = payload.get("sub")
     rol = (payload.get("rol") or "").upper()
+    token_type = payload.get("typ")
 
     if not usuario:
         raise HTTPException(status_code=401, detail="Token inválido (sin sub)")
+
+    if token_type and token_type != "access":
+        raise HTTPException(status_code=401, detail="Token inválido para acceso")
 
     return {"usuario": usuario, "rol": rol}

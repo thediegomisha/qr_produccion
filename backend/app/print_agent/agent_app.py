@@ -95,26 +95,39 @@ def detect_local_printers() -> List[Dict[str, Any]]:
         try:
             out = subprocess.run(["lpstat", "-a"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, timeout=5)
             text = out.stdout.decode(errors="ignore")
+            lp_bin = shutil.which("lp")
+            lpr_bin = shutil.which("lpr")
             for line in text.splitlines():
                 line = line.strip()
                 if not line:
                     continue
                 # line example: "EPSON_L5590_Series accepting requests since ...", printer name is first token
                 name = line.split()[0]
-                # produce a printer config that the agent can use: a 'command' printer that uses lp
-                if shutil.which("lp"):
-                    cmd = ["lp", "-d", name]
+                # produce a printer config that the agent can use: prefer lp, fallback to lpr
+                if lp_bin:
+                    cmd = [lp_bin, "-d", name]
                     printers.append({
                         "name": name,
                         "type": "command",
                         "cmd": cmd,
+                        "backend": "lp",
+                        "source": "auto"
+                    })
+                elif lpr_bin:
+                    cmd = [lpr_bin, "-P", name]
+                    printers.append({
+                        "name": name,
+                        "type": "command",
+                        "cmd": cmd,
+                        "backend": "lpr",
                         "source": "auto"
                     })
                 else:
-                    # if lp not available, still include the printer as 'local' so UI can show it
+                    # no printing command available, expose as local with explicit reason
                     printers.append({
                         "name": name,
                         "type": "local",
+                        "unavailable_reason": "No lp/lpr command found on PATH",
                         "source": "auto"
                     })
             logger.info("Detected %d local printers via lpstat", len(printers))
@@ -168,7 +181,10 @@ PRINTERS = build_printer_list()  # canonical list served by /printers
 # DB helpers (SQLite)
 # -----------------------------
 def init_db(path: str):
-    conn = sqlite3.connect(path, check_same_thread=False)
+    conn = sqlite3.connect(path, check_same_thread=False, timeout=10)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS jobs (
@@ -188,61 +204,68 @@ def init_db(path: str):
     return conn
 
 _db_conn = init_db(DB_PATH)
+_db_lock = threading.Lock()
 
 def db_insert_job(job_id: str, printer: str, payload: bytes, copies: int):
     now = datetime.utcnow().isoformat()
-    _db_conn.execute(
-        "INSERT INTO jobs (id, printer, payload, copies, status, attempts, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (job_id, printer, payload, copies, "queued", 0, now, now),
-    )
-    _db_conn.commit()
+    with _db_lock:
+        _db_conn.execute(
+            "INSERT INTO jobs (id, printer, payload, copies, status, attempts, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (job_id, printer, payload, copies, "queued", 0, now, now),
+        )
+        _db_conn.commit()
 
 def db_fetch_one_queued():
-    cur = _db_conn.execute("SELECT id FROM jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1")
-    row = cur.fetchone()
-    if not row:
-        return None
-    job_id = row[0]
-    now = datetime.utcnow().isoformat()
-    res = _db_conn.execute(
-        "UPDATE jobs SET status = 'processing', attempts = attempts + 1, updated_at = ? WHERE id = ? AND status = 'queued'",
-        (now, job_id),
-    )
-    _db_conn.commit()
-    if res.rowcount == 1:
-        cur = _db_conn.execute("SELECT id, printer, payload, copies, attempts FROM jobs WHERE id = ?", (job_id,))
+    with _db_lock:
+        cur = _db_conn.execute("SELECT id FROM jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1")
         r = cur.fetchone()
-        if r:
-            return {"id": r[0], "printer": r[1], "payload": r[2], "copies": r[3], "attempts": r[4]}
+        if not r:
+            return None
+        job_id = r[0]
+        now = datetime.utcnow().isoformat()
+        res = _db_conn.execute(
+            "UPDATE jobs SET status = 'processing', attempts = attempts + 1, updated_at = ? WHERE id = ? AND status = 'queued'",
+            (now, job_id),
+        )
+        _db_conn.commit()
+        if res.rowcount == 1:
+            cur = _db_conn.execute("SELECT id, printer, payload, copies, attempts FROM jobs WHERE id = ?", (job_id,))
+            r = cur.fetchone()
+            if r:
+                return {"id": r[0], "printer": r[1], "payload": r[2], "copies": r[3], "attempts": r[4]}
     return None
 
 def db_update_job_done(job_id: str):
     now = datetime.utcnow().isoformat()
-    _db_conn.execute("UPDATE jobs SET status = 'done', updated_at = ?, last_error = NULL WHERE id = ?", (now, job_id))
-    _db_conn.commit()
+    with _db_lock:
+        _db_conn.execute("UPDATE jobs SET status = 'done', updated_at = ?, last_error = NULL WHERE id = ?", (now, job_id))
+        _db_conn.commit()
 
 def db_update_job_failed(job_id: str, error_msg: str):
     now = datetime.utcnow().isoformat()
-    _db_conn.execute(
-        "UPDATE jobs SET status = 'failed', last_error = ?, updated_at = ? WHERE id = ?",
-        (error_msg[:1000], now, job_id),
-    )
-    _db_conn.commit()
+    with _db_lock:
+        _db_conn.execute(
+            "UPDATE jobs SET status = 'failed', last_error = ?, updated_at = ? WHERE id = ?",
+            (error_msg[:1000], now, job_id),
+        )
+        _db_conn.commit()
 
 def db_requeue_with_backoff(job_id: str, attempts: int, error_msg: str):
     if attempts >= MAX_RETRIES:
         db_update_job_failed(job_id, f"Max retries reached: {error_msg}")
         return
     now = datetime.utcnow().isoformat()
-    _db_conn.execute(
-        "UPDATE jobs SET status = 'queued', last_error = ?, updated_at = ? WHERE id = ?",
-        (error_msg[:1000], now, job_id),
-    )
-    _db_conn.commit()
+    with _db_lock:
+        _db_conn.execute(
+            "UPDATE jobs SET status = 'queued', last_error = ?, updated_at = ? WHERE id = ?",
+            (error_msg[:1000], now, job_id),
+        )
+        _db_conn.commit()
 
 def db_get_job(job_id: str):
-    cur = _db_conn.execute("SELECT id, printer, attempts, status, last_error, created_at, updated_at FROM jobs WHERE id = ?", (job_id,))
-    r = cur.fetchone()
+    with _db_lock:
+        cur = _db_conn.execute("SELECT id, printer, attempts, status, last_error, created_at, updated_at FROM jobs WHERE id = ?", (job_id,))
+        r = cur.fetchone()
     if not r:
         return None
     return {
@@ -287,7 +310,7 @@ def send_to_windows_printer(printer_name: str, data: bytes):
     ph = win32print.OpenPrinter(printer_name)
     try:
         # StartDocPrinter/WritePrinter expects bytes
-        job_info = ("PrintAgentJob", None, "RAW")
+        job_info = ("PrintAgentJob", "Print Agent", "RAW")
         hjob = win32print.StartDocPrinter(ph, 1, job_info)
         win32print.StartPagePrinter(ph)
         win32print.WritePrinter(ph, data)
@@ -341,16 +364,18 @@ def worker_loop(poll_interval: float):
                     cmd = p.get("cmd")
                     if isinstance(cmd, str):
                         cmd_list = cmd.split()
+                    elif isinstance(cmd, list):
+                        cmd_list = [str(x) for x in cmd]
                     else:
-                        cmd_list = cmd
+                        raise RuntimeError("Printer config missing command list")
                     for i in range(copies):
                         send_to_command_printer(cmd_list, payload)
                 elif p.get("type") == "windows":
                     for i in range(copies):
                         send_to_windows_printer(printer_name, payload)
                 elif p.get("type") == "local":
-                    # local without lp command; fail gracefully
-                    raise RuntimeError("Printer type 'local' unsupported for automatic printing (no command provided)")
+                    reason = p.get("unavailable_reason") or "No command backend available"
+                    raise RuntimeError(f"Printer type 'local' unsupported for automatic printing ({reason})")
                 else:
                     raise RuntimeError(f"Unsupported printer type: {p.get('type')}")
             except Exception as e:

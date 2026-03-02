@@ -125,8 +125,25 @@ def actualizar_usuario(usuario_id: str, data: dict, user: dict = Depends(get_cur
         target_rol = (target.get("rol") or "").upper()
         _gerencia_block_target(target_rol, user)
 
+        me = (user.get("usuario") or "").strip()
+        if nuevo_activo is False and usuario_id == me:
+            raise HTTPException(400, "No puedes inactivar tu propio usuario")
+
+        if nuevo_activo is False and target_rol == "ROOT":
+            other_root = db.execute(
+                text("""
+                    SELECT 1
+                    FROM usuarios
+                    WHERE rol = 'ROOT' AND activo = true AND usuario <> :u
+                    LIMIT 1
+                """),
+                {"u": usuario_id}
+            ).first()
+            if not other_root:
+                raise HTTPException(400, "Debe existir al menos un ROOT activo")
+
         sets = []
-        params = {"u": usuario_id}
+        params: dict[str, object] = {"u": usuario_id}
 
         if nuevo_nombre is not None:
             sets.append("nombre = :nombre")
@@ -142,6 +159,45 @@ def actualizar_usuario(usuario_id: str, data: dict, user: dict = Depends(get_cur
             raise HTTPException(400, "No hay campos para actualizar")
 
         db.execute(text(f"UPDATE usuarios SET {', '.join(sets)} WHERE usuario = :u"), params)
+        db.commit()
+
+    return {"ok": True}
+
+
+@router.delete("/usuarios/{usuario_id}")
+def eliminar_usuario(usuario_id: str, user: dict = Depends(get_current_user)):
+    _require_root_or_gerencia(user)
+
+    me = (user.get("usuario") or "").strip()
+    if usuario_id == me:
+        raise HTTPException(400, "No puedes eliminar tu propio usuario")
+
+    with SessionLocal() as db:
+        target = db.execute(
+            text("SELECT usuario, rol FROM usuarios WHERE usuario = :u"),
+            {"u": usuario_id}
+        ).mappings().first()
+
+        if not target:
+            raise HTTPException(404, "Usuario no encontrado")
+
+        target_rol = (target.get("rol") or "").upper()
+        _gerencia_block_target(target_rol, user)
+
+        if target_rol == "ROOT":
+            other_root = db.execute(
+                text("""
+                    SELECT 1
+                    FROM usuarios
+                    WHERE rol = 'ROOT' AND activo = true AND usuario <> :u
+                    LIMIT 1
+                """),
+                {"u": usuario_id}
+            ).first()
+            if not other_root:
+                raise HTTPException(400, "No se puede eliminar el último ROOT activo")
+
+        db.execute(text("DELETE FROM usuarios WHERE usuario = :u"), {"u": usuario_id})
         db.commit()
 
     return {"ok": True}

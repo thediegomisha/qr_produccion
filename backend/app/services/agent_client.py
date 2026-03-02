@@ -23,10 +23,11 @@ except Exception:
     AGENTS = []
 
 
-def _headers() -> Dict[str, str]:
+def _headers(agent_token: Optional[str] = None) -> Dict[str, str]:
     h: Dict[str, str] = {"Content-Type": "application/json"}
-    if TOKEN:
-        h["X-Agent-Token"] = TOKEN
+    token = agent_token if agent_token is not None else TOKEN
+    if token:
+        h["X-Agent-Token"] = token
     return h
 
 
@@ -60,6 +61,7 @@ def enviar_job_agente(
     copies: int = 1,
     agent_url: Optional[str] = None,
     agent_id: Optional[str] = None,
+    agent_token: Optional[str] = None,
     timeout: int = 15,
 ) -> Dict[str, Any]:
     """
@@ -82,6 +84,6 @@ def enviar_job_agente(
         "copies": int(copies),
     }
 
-    r = requests.post(url, json=payload, headers=_headers(), timeout=timeout)
+    r = requests.post(url, json=payload, headers=_headers(agent_token=agent_token), timeout=timeout)
     r.raise_for_status()
     return r.json()

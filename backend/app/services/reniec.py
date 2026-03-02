@@ -2,7 +2,7 @@
 import os
 import requests
 
-BASE_URL = "https://api.perudevs.com/api/v1/dni/simple"
+BASE_URL = "https://api.perudevs.com/api/v1/dni/complete"
 
 def consultar_dni(dni: str):
     api_key = os.getenv("APIPERU_TOKEN")  # leer en runtime, no en import
@@ -37,11 +37,40 @@ def consultar_dni(dni: str):
     if not data:
         return None
 
+    nombres = (
+        data.get("nombres")
+        or data.get("nombre")
+        or data.get("prenombres")
+        or ""
+    )
+
+    ap_pat = (
+        data.get("apellido_paterno")
+        or data.get("apellidoPaterno")
+        or data.get("ape_paterno")
+        or ""
+    )
+
+    ap_mat = (
+        data.get("apellido_materno")
+        or data.get("apellidoMaterno")
+        or data.get("ape_materno")
+        or ""
+    )
+
+    fecha_nacimiento = (
+        data.get("fecha_nacimiento")
+        or data.get("fecha_de_nacimiento")
+        or data.get("nacimiento")
+        or data.get("fec_nacimiento")
+    )
+
     return {
         "dni": data.get("id") or dni,
-        "nombre": data.get("nombres"),
-        "apellido_paterno": data.get("apellido_paterno"),
-        "apellido_materno": data.get("apellido_materno"),
+        "nombre": nombres,
+        "apellido_paterno": ap_pat,
+        "apellido_materno": ap_mat,
+        "fecha_nacimiento": fecha_nacimiento,
     }
 
 def consultar_dni_fullname(dni: str):

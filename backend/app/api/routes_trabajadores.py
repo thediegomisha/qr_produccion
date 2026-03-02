@@ -8,6 +8,13 @@ from app.core.auth_dep import get_current_user
 
 router = APIRouter()
 
+
+def _format_num_orden(value) -> str:
+    try:
+        return f"{int(value):03d}"
+    except (TypeError, ValueError):
+        return ""
+
 # ==================================================
 # LISTAR TRABAJADORES
 # ==================================================
@@ -40,7 +47,12 @@ def listar_trabajadores(activos: bool = True, user: dict = Depends(get_current_u
         query += " ORDER BY nombre"
 
         rows = db.execute(text(query)).mappings().all()
-        return list(rows)
+        data = []
+        for row in rows:
+            item = dict(row)
+            item["num_orden"] = _format_num_orden(item.get("num_orden"))
+            data.append(item)
+        return data
 
 # ==================================================
 # CREAR TRABAJADOR
@@ -103,7 +115,12 @@ def crear_trabajador(data: dict, user: dict = Depends(get_current_user)):
             db.rollback()
             raise HTTPException(status_code=409, detail="Conflicto: códigos ya asignados. Intente nuevamente.")
 
-    return {"ok": True, "dni": dni, "num_orden": num_orden, "cod_letra": cod_letra}
+    return {
+        "ok": True,
+        "dni": dni,
+        "num_orden": _format_num_orden(num_orden),
+        "cod_letra": cod_letra,
+    }
 
 # ==================================================
 # ACTUALIZAR TRABAJADOR
@@ -207,7 +224,9 @@ def obtener_trabajador(trabajador_id: int, user: dict = Depends(get_current_user
         if not row:
             raise HTTPException(status_code=404, detail="Trabajador no encontrado")
 
-        return dict(row)
+        data = dict(row)
+        data["num_orden"] = _format_num_orden(data.get("num_orden"))
+        return data
 
 # ==================================================
 # DESACTIVAR TRABAJADOR (SOFT DELETE)

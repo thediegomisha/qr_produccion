@@ -44,6 +44,74 @@ El producto se compone de los siguientes elementos:
 
 ---
 
+## ⚙️ Puesta en marcha y correcciones recomendadas
+
+1. Cree su entorno virtual local (no reutilice `venv/` versionado):
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+2. Copie variables de entorno:
+   ```bash
+   cp .env.example .env
+   cp .env.example backend/.env
+   ```
+3. Ajuste credenciales reales de base de datos y secretos en `.env` y `backend/.env`.
+   - Puede ajustar expiración de sesión con `ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS` y `REFRESH_COOKIE_DAYS`.
+4. Levante backend y frontend:
+   ```bash
+   uvicorn backend.app.main:app --reload --port 8000
+   streamlit run ui_web/streamlit_app.py
+   ```
+
+También puede iniciar ambos con un solo comando:
+
+```bash
+bash scripts/run_dev.sh
+```
+
+### PostgreSQL nativo (sin contenedor)
+
+Si desea trabajar con PostgreSQL instalado en su PC (servicio del sistema), use:
+
+```bash
+sudo bash scripts/install_postgres_native.sh
+```
+
+Si solo necesita (re)crear usuario/base del proyecto en PostgreSQL ya instalado:
+
+```bash
+bash scripts/create_qr_user.sh
+```
+
+Este script:
+- instala `postgresql` y `postgresql-contrib`
+- habilita el servicio `postgresql`
+- crea usuario `qr_user` y base `qr_produccion`
+- valida la conexion final
+
+Verifique el puerto activo del cluster y use ese valor en `DB_PORT`:
+
+```bash
+pg_lsclusters
+```
+
+En Ubuntu puede quedar en `5433` si `5432` estaba ocupado durante la instalacion.
+
+Si tiene un contenedor Docker ocupando el puerto `5432`, detengalo antes de ejecutar el script.
+
+> Nota: si `venv/bin/python` falla con error de symlink (ej. `unsupported reparse tag`), elimine `venv/` y use un entorno nuevo como `.venv/`.
+
+```bash
+rm -rf venv
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+---
+
 👤 Autor
 
 Juan Luis Diaz Aylas

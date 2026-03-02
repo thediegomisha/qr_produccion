@@ -56,6 +56,7 @@ def print_tickets(
     # Dinámico desde UI (opcional)
     agent_url = data.get("agent_url")  # ej: http://200.100.20.153:5000
     printer = data.get("printer")      # ej: ZT411
+    agent_token = data.get("agent_token")
 
     # Fallback a config estática
     if not printer:
@@ -105,6 +106,7 @@ def print_tickets(
             job = enviar_job_agente(
                 agent_url=agent_url,
                 agent_id=None if agent_url else agent_id,
+                agent_token=agent_token,
                 printer=printer,
                 raw=zpl,
                 copies=1
@@ -126,4 +128,3 @@ def print_tickets(
         "printer": printer,
         "agent_url": agent_url
     }
-

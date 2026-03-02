@@ -3,6 +3,7 @@ import json
 import base64
 import requests
 import streamlit as st
+from streamlit.errors import StreamlitSecretNotFoundError
 from pathlib import Path
 from typing import List, Dict, Any
 
@@ -53,15 +54,22 @@ def bootstrap_printer_selection() -> None:
 # ============================
 # Config agent (url/token)
 # ============================
+def _safe_secret_get(key: str):
+    try:
+        return st.secrets.get(key)
+    except (StreamlitSecretNotFoundError, FileNotFoundError, KeyError):
+        return None
+
+
 def _get_agent_url_from_ui() -> str:
     # Prioridad: st.secrets -> env -> default local
-    url = st.secrets.get("PRINT_AGENT_URL", None) if hasattr(st, "secrets") else None
+    url = _safe_secret_get("PRINT_AGENT_URL")
     if not url:
         url = os.getenv("PRINT_AGENT_URL", "http://127.0.0.1:5000")
     return (url or "").rstrip("/")
 
 def _get_agent_token_from_ui() -> str:
-    token = st.secrets.get("PRINT_AGENT_TOKEN", None) if hasattr(st, "secrets") else None
+    token = _safe_secret_get("PRINT_AGENT_TOKEN")
     if not token:
         token = os.getenv("PRINT_AGENT_TOKEN", "")
     return token or ""
