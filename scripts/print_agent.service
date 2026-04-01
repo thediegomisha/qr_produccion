@@ -1,0 +1,19 @@
+[Unit]
+Description=QR Produccion Print Agent
+After=network.target
+
+[Service]
+Type=simple
+User=theathoq
+WorkingDirectory=/home/theathoq/Proyectos/qr_produccion
+EnvironmentFile=/home/theathoq/Proyectos/qr_produccion/.env
+EnvironmentFile=/home/theathoq/Proyectos/qr_produccion/backend/.env
+Environment=PYTHONPATH=/home/theathoq/Proyectos/qr_produccion/backend
+Environment=AGENT_HOST=0.0.0.0
+Environment=AGENT_PORT=5000
+ExecStart=/home/theathoq/Proyectos/qr_produccion/.venv/bin/python -m uvicorn app.print_agent.agent_app:app --host 0.0.0.0 --port 5000
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

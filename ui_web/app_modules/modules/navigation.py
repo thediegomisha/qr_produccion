@@ -7,6 +7,7 @@ SECTION_IMPRESORAS = "impresoras"
 SECTION_REPORTES = "reportes"
 SECTION_LOTES = "lotes"
 SECTION_CONSULTAS = "consultas"
+SECTION_PRODUCTOS = "productos"
 
 SECTION_LABELS = {
     SECTION_USERS: "👥 Usuarios",
@@ -18,6 +19,7 @@ SECTION_LABELS = {
     SECTION_REPORTES: "📊 Reportes",
     SECTION_LOTES: "📦 Lotes",
     SECTION_CONSULTAS: "🔎 Consultas",
+    SECTION_PRODUCTOS: "🧾 Productos",
 }
 
 SECTION_TITLES = {
@@ -30,6 +32,7 @@ SECTION_TITLES = {
     SECTION_REPORTES: "REPORTES",
     SECTION_LOTES: "GESTION DE LOTES",
     SECTION_CONSULTAS: "CONSULTA POR DNI",
+    SECTION_PRODUCTOS: "MANTENIMIENTO DE PRODUCTOS",
 }
 
 
@@ -46,6 +49,7 @@ def sections_for_role(role: str) -> list[str]:
     if role in ("ROOT", "GERENCIA"):
         return [
             SECTION_USERS,
+            SECTION_PRODUCTOS,
             SECTION_LISTAR,
             SECTION_IMPRESION,
             SECTION_TRABAJADORES,

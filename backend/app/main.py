@@ -20,6 +20,7 @@ from app.api import (
     routes_reports,
     routes_lotes,
     routes_vigilancia,
+    routes_productos,
 )
 
 app = FastAPI(title="QR Producción", root_path="/api")
@@ -38,4 +39,4 @@ app.include_router(routes_scans.router)
 app.include_router(routes_reports.router)
 app.include_router(routes_lotes.router)
 app.include_router(routes_vigilancia.router)
-
+app.include_router(routes_productos.router)

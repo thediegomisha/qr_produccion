@@ -26,6 +26,15 @@ class QREmitido(Base):
     creado_en = mapped_column(DateTime, default=datetime.utcnow)
     usado_en = mapped_column(DateTime, nullable=True)
 
+
+class Producto(Base):
+    __tablename__ = "productos"
+
+    id = mapped_column(Integer, primary_key=True, autoincrement=True)
+    nombre = mapped_column(String(120), unique=True, nullable=False)
+    activo = mapped_column(Boolean, default=True)
+    creado_en = mapped_column(DateTime, default=datetime.utcnow)
+
 class Impresora(Base):
     __tablename__ = "impresoras"
 

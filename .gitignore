@@ -17,3 +17,7 @@ __pycache__/
 
 # Local databases and runtime artifacts
 *.db
+*.db-shm
+*.db-wal
+.dev_backend.pid
+backups/

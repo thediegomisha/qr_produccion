@@ -167,9 +167,26 @@ def render(
 
     col_prod, col_cant, _ = st.columns([1.2, 0.6, 3])
     with col_prod:
+        productos = ["UVA"]
+        r_prod = api_get("/productos")
+        if r_prod.status_code == 200:
+            items = r_prod.json() or []
+            nombres = [p.get("nombre") for p in items if p.get("nombre")]
+            if nombres:
+                productos = nombres
+        else:
+            st.warning("No se pudo cargar productos. Usando lista por defecto.")
+
+        current_prod = st.session_state.get("producto")
+        if current_prod in productos:
+            idx = productos.index(current_prod)
+        else:
+            idx = 0
+
         st.selectbox(
             "Producto",
-            ["UVA"],
+            productos,
+            index=idx,
             key="producto",
             on_change=generar_vista_previa,
         )
