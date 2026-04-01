@@ -31,11 +31,13 @@ ASSETS_DIR = BASE_DIR / "assets"
 
 API = os.getenv("API_URL", "http://127.0.0.1:8000/api")
 APP_VERSION = os.getenv("APP_VERSION", "v1.0.0")
+REMEMBER_LOGIN = os.getenv("REMEMBER_LOGIN", "1").strip().lower() not in ("0", "false", "no")
 REFRESH_COOKIE_NAME = "qr_refresh_token"
 REFRESH_COOKIE_DAYS = int(os.getenv("REFRESH_COOKIE_DAYS", "7"))
 COOKIE_MANAGER = stx.CookieManager(key="auth_cookie_manager")
 AUTH_RESTORE_TRIES_KEY = "_auth_restore_tries"
 REFRESH_FALLBACK_FILE = Path.home() / ".streamlit" / "qr_refresh_token.txt"
+REFRESH_FALLBACK_ENABLED = os.getenv("REFRESH_FALLBACK_ENABLED", "0").strip().lower() in ("1", "true", "yes")
 FORCE_LOGOUT_KEY = "_force_logout"
 FORCE_LOGOUT_FILE = Path.home() / ".streamlit" / "qr_force_logout.flag"
 
@@ -178,6 +180,8 @@ def _is_force_logout_active() -> bool:
 
 
 def try_restore_auth_from_refresh_cookie() -> None:
+    if not REMEMBER_LOGIN:
+        return
     if _is_force_logout_active():
         return
 
@@ -188,7 +192,9 @@ def try_restore_auth_from_refresh_cookie() -> None:
     if AUTH_RESTORE_TRIES_KEY not in st.session_state:
         st.session_state[AUTH_RESTORE_TRIES_KEY] = 0
 
-    refresh_token = _get_refresh_cookie() or _load_refresh_token_from_disk()
+    refresh_token = _get_refresh_cookie()
+    if not refresh_token and REFRESH_FALLBACK_ENABLED:
+        refresh_token = _load_refresh_token_from_disk()
     if not refresh_token:
         if st.session_state[AUTH_RESTORE_TRIES_KEY] < 2:
             st.session_state[AUTH_RESTORE_TRIES_KEY] += 1
@@ -217,7 +223,8 @@ def try_restore_auth_from_refresh_cookie() -> None:
     new_refresh = (data.get("refresh_token") or "").strip()
     if new_refresh:
         _set_refresh_cookie(new_refresh)
-        _save_refresh_token_to_disk(new_refresh)
+        if REFRESH_FALLBACK_ENABLED:
+            _save_refresh_token_to_disk(new_refresh)
 
 
 LOGIN_IMG_B64 = _img_to_base64("logoappqr.png")
@@ -370,7 +377,11 @@ if resp is not None and resp.status_code == 200 and not resp.json().get("initial
 
     st.stop()
 
-try_restore_auth_from_refresh_cookie()
+if not REMEMBER_LOGIN:
+    _clear_refresh_cookie()
+    _clear_refresh_token_from_disk()
+else:
+    try_restore_auth_from_refresh_cookie()
 
 # --------------------------------------------------
 # LOGIN
@@ -416,10 +427,12 @@ if not st.session_state.auth:
                     st.session_state[AUTH_RESTORE_TRIES_KEY] = 0
                     st.session_state[FORCE_LOGOUT_KEY] = False
                     _set_force_logout_file(False)
-                    refresh_token = (data.get("refresh_token") or "").strip()
-                    if refresh_token:
-                        _set_refresh_cookie(refresh_token)
-                        _save_refresh_token_to_disk(refresh_token)
+                    if REMEMBER_LOGIN:
+                        refresh_token = (data.get("refresh_token") or "").strip()
+                        if refresh_token:
+                            _set_refresh_cookie(refresh_token)
+                            if REFRESH_FALLBACK_ENABLED:
+                                _save_refresh_token_to_disk(refresh_token)
                     st.session_state.pop("login_password", None)
                     # Inicializa selección impresora solo si falta
                     if "selected_printer_name" not in st.session_state:
