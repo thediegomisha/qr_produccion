@@ -194,6 +194,15 @@ def try_restore_auth_from_refresh_cookie() -> None:
     if _is_force_logout_active():
         return
 
+    if not REMEMBER_LOGIN_PERSISTENT:
+        if st.session_state.get("_cleared_persistent_cookie") is None:
+            existing = _get_refresh_cookie()
+            if existing:
+                st.session_state["_cleared_persistent_cookie"] = True
+                _clear_refresh_cookie()
+                _clear_refresh_token_from_disk()
+                return
+
     if st.session_state.get("auth"):
         st.session_state[AUTH_RESTORE_TRIES_KEY] = 0
         return
@@ -202,8 +211,6 @@ def try_restore_auth_from_refresh_cookie() -> None:
         st.session_state[AUTH_RESTORE_TRIES_KEY] = 0
 
     refresh_token = _get_refresh_cookie()
-    if refresh_token and not REMEMBER_LOGIN_PERSISTENT:
-        _set_refresh_cookie(refresh_token)
     if not refresh_token and REFRESH_FALLBACK_ENABLED:
         refresh_token = _load_refresh_token_from_disk()
     if not refresh_token:
