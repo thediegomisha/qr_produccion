@@ -33,6 +33,7 @@ API = os.getenv("API_URL", "http://127.0.0.1:8000/api")
 APP_VERSION = os.getenv("APP_VERSION", "v1.0.0")
 REMEMBER_LOGIN = os.getenv("REMEMBER_LOGIN", "1").strip().lower() not in ("0", "false", "no")
 REMEMBER_LOGIN_PERSISTENT = os.getenv("REMEMBER_LOGIN_PERSISTENT", "0").strip().lower() in ("1", "true", "yes")
+DISABLE_LOGIN_COOKIES = os.getenv("DISABLE_LOGIN_COOKIES", "1").strip().lower() in ("1", "true", "yes")
 REFRESH_COOKIE_NAME = "qr_refresh_token"
 REFRESH_COOKIE_DAYS = int(os.getenv("REFRESH_COOKIE_DAYS", "7"))
 COOKIE_MANAGER = stx.CookieManager(key="auth_cookie_manager")
@@ -92,7 +93,16 @@ def api_delete(path: str):
 
 
 def _get_refresh_cookie() -> str | None:
-    cookies = COOKIE_MANAGER.get_all()
+    if DISABLE_LOGIN_COOKIES:
+        return None
+    cache_run = st.session_state.get("_cookie_cache_run")
+    current_run = st.session_state.get("_run_id")
+    if cache_run == current_run and "_cookie_cache" in st.session_state:
+        cookies = st.session_state.get("_cookie_cache")
+    else:
+        cookies = COOKIE_MANAGER.get_all()
+        st.session_state["_cookie_cache"] = cookies
+        st.session_state["_cookie_cache_run"] = current_run
     if not cookies or not isinstance(cookies, dict):
         return None
 
@@ -105,6 +115,8 @@ def _get_refresh_cookie() -> str | None:
 
 
 def _set_refresh_cookie(token: str) -> None:
+    if DISABLE_LOGIN_COOKIES:
+        return
     if REMEMBER_LOGIN_PERSISTENT:
         COOKIE_MANAGER.set(
             REFRESH_COOKIE_NAME,
@@ -123,6 +135,8 @@ def _set_refresh_cookie(token: str) -> None:
 
 
 def _clear_refresh_cookie() -> None:
+    if DISABLE_LOGIN_COOKIES:
+        return
     try:
         COOKIE_MANAGER.delete(REFRESH_COOKIE_NAME)
     except Exception:
@@ -283,6 +297,8 @@ def flash_show(tab: str):
 # --------------------------------------------------
 if "auth" not in st.session_state:
     st.session_state.auth = None
+
+st.session_state["_run_id"] = st.session_state.get("_run_id", 0) + 1
 
 if "show_dni_modal" not in st.session_state:
     st.session_state.show_dni_modal = False
