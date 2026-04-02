@@ -32,6 +32,7 @@ ASSETS_DIR = BASE_DIR / "assets"
 API = os.getenv("API_URL", "http://127.0.0.1:8000/api")
 APP_VERSION = os.getenv("APP_VERSION", "v1.0.0")
 REMEMBER_LOGIN = os.getenv("REMEMBER_LOGIN", "1").strip().lower() not in ("0", "false", "no")
+REMEMBER_LOGIN_PERSISTENT = os.getenv("REMEMBER_LOGIN_PERSISTENT", "0").strip().lower() in ("1", "true", "yes")
 REFRESH_COOKIE_NAME = "qr_refresh_token"
 REFRESH_COOKIE_DAYS = int(os.getenv("REFRESH_COOKIE_DAYS", "7"))
 COOKIE_MANAGER = stx.CookieManager(key="auth_cookie_manager")
@@ -104,13 +105,21 @@ def _get_refresh_cookie() -> str | None:
 
 
 def _set_refresh_cookie(token: str) -> None:
-    COOKIE_MANAGER.set(
-        REFRESH_COOKIE_NAME,
-        token,
-        path="/",
-        expires_at=datetime.now(timezone.utc) + timedelta(days=REFRESH_COOKIE_DAYS),
-        same_site="lax",
-    )
+    if REMEMBER_LOGIN_PERSISTENT:
+        COOKIE_MANAGER.set(
+            REFRESH_COOKIE_NAME,
+            token,
+            path="/",
+            expires_at=datetime.now(timezone.utc) + timedelta(days=REFRESH_COOKIE_DAYS),
+            same_site="lax",
+        )
+    else:
+        COOKIE_MANAGER.set(
+            REFRESH_COOKIE_NAME,
+            token,
+            path="/",
+            same_site="lax",
+        )
 
 
 def _clear_refresh_cookie() -> None:
