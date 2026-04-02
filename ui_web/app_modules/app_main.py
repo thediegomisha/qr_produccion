@@ -202,6 +202,8 @@ def try_restore_auth_from_refresh_cookie() -> None:
         st.session_state[AUTH_RESTORE_TRIES_KEY] = 0
 
     refresh_token = _get_refresh_cookie()
+    if refresh_token and not REMEMBER_LOGIN_PERSISTENT:
+        _set_refresh_cookie(refresh_token)
     if not refresh_token and REFRESH_FALLBACK_ENABLED:
         refresh_token = _load_refresh_token_from_disk()
     if not refresh_token:
