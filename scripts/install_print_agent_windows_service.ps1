@@ -69,7 +69,16 @@ if ($LASTEXITCODE -ne 0) {
     & nssm install $serviceName $python $args
 }
 
-& nssm stop $serviceName 2>$null
+$serviceStatus = (& nssm status $serviceName 2>$null | Out-String).Trim()
+if ($serviceStatus -and $serviceStatus -notmatch "SERVICE_STOPPED") {
+    try {
+        & nssm stop $serviceName | Out-Null
+    }
+    catch {
+        Write-Host "No se pudo detener el servicio (continuando): $($_.Exception.Message)"
+    }
+}
+
 & nssm set $serviceName Application $python
 & nssm set $serviceName AppParameters $args
 & nssm set $serviceName AppDirectory $root
