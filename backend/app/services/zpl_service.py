@@ -1,6 +1,29 @@
 import json
+import os
+import unicodedata
 import qrcode
 from app.core.security import sign
+
+QR_ASCII_ONLY = os.getenv("QR_ASCII_ONLY", "1").strip().lower() in ("1", "true", "yes")
+
+
+def _ascii_safe(value: str) -> str:
+    if not QR_ASCII_ONLY:
+        return value
+    normalized = unicodedata.normalize("NFKD", value)
+    return normalized.encode("ascii", "ignore").decode("ascii")
+
+
+def _sanitize_payload(payload: dict) -> dict:
+    if not QR_ASCII_ONLY:
+        return payload
+    cleaned: dict = {}
+    for k, v in payload.items():
+        if isinstance(v, str):
+            cleaned[k] = _ascii_safe(v)
+        else:
+            cleaned[k] = v
+    return cleaned
 
 def generar_zpl_qr( token: str, dni: str, visible: str, producto: str,):
     
@@ -18,7 +41,8 @@ def generar_zpl_qr( token: str, dni: str, visible: str, producto: str,):
         "sig": sign(base)
     }
 
-    qr_data = json.dumps(payload, separators=(",", ":"))
+    payload = _sanitize_payload(payload)
+    qr_data = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
 
     # --------------------------------------------------
     # ZPL
@@ -113,7 +137,8 @@ def generar_zpl_qr_4cols(
                 "sig": it["sig"],
             }
 
-        data = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+        payload = _sanitize_payload(payload)
+        data = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
 
         # 1) Elegir magnificación que NO recorte el QR en 25x25
         modules = _qr_modules_count_H(data)
