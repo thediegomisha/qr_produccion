@@ -310,7 +310,7 @@ def send_to_windows_printer(printer_name: str, data: bytes):
     ph = win32print.OpenPrinter(printer_name)
     try:
         # StartDocPrinter/WritePrinter expects bytes
-        job_info = ("PrintAgentJob", "Print Agent", "RAW")
+        job_info = ("PrintAgentJob", None, "RAW")
         hjob = win32print.StartDocPrinter(ph, 1, job_info)
         win32print.StartPagePrinter(ph)
         win32print.WritePrinter(ph, data)
