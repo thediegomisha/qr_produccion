@@ -2,6 +2,17 @@ $ErrorActionPreference = "Stop"
 
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")
 
+function Test-Administrator {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
+}
+
+if (-not (Test-Administrator)) {
+    Write-Host "Este script requiere PowerShell como Administrador."
+    exit 1
+}
+
 function Import-EnvFile($path) {
     if (-not (Test-Path $path)) { return }
     Get-Content $path | ForEach-Object {
@@ -11,7 +22,7 @@ function Import-EnvFile($path) {
         if ($parts.Count -ne 2) { return }
         $key = $parts[0].Trim()
         $val = $parts[1].Trim().Trim('"')
-        if ($key) { $env:$key = $val }
+        if ($key) { Set-Item -Path "Env:$key" -Value $val }
     }
 }
 
@@ -33,6 +44,9 @@ if (-not $agentPort) { $agentPort = "5000" }
 
 $python = Join-Path $root ".venv\Scripts\python.exe"
 if (-not (Test-Path $python)) {
+    $python = Join-Path $root "venv\Scripts\python.exe"
+}
+if (-not (Test-Path $python)) {
     $python = "python"
 }
 
@@ -50,9 +64,23 @@ $args = "-m uvicorn app.print_agent.agent_app:app --host $agentHost --port $agen
 
 Write-Host "Instalando servicio $serviceName"
 
-& nssm install $serviceName $python $args
+& nssm status $serviceName 2>$null
+if ($LASTEXITCODE -ne 0) {
+    & nssm install $serviceName $python $args
+}
+
+& nssm stop $serviceName 2>$null
+& nssm set $serviceName Application $python
+& nssm set $serviceName AppParameters $args
 & nssm set $serviceName AppDirectory $root
-& nssm set $serviceName AppEnvironmentExtra "AGENT_TOKEN=$agentToken" "AGENT_ID=$agentId" "PYTHONPATH=$env:PYTHONPATH" "AGENT_HOST=$agentHost" "AGENT_PORT=$agentPort"
+$envExtra = @(
+    "AGENT_TOKEN=$agentToken",
+    "AGENT_ID=$agentId",
+    "PYTHONPATH=$env:PYTHONPATH",
+    "AGENT_HOST=$agentHost",
+    "AGENT_PORT=$agentPort"
+)
+& nssm set $serviceName AppEnvironmentExtra $envExtra
 & nssm set $serviceName Start SERVICE_AUTO_START
 
 & nssm start $serviceName
