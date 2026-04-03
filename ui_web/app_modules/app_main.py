@@ -33,13 +33,12 @@ API = os.getenv("API_URL", "http://127.0.0.1:8000/api")
 APP_VERSION = os.getenv("APP_VERSION", "v1.0.0")
 REMEMBER_LOGIN = os.getenv("REMEMBER_LOGIN", "1").strip().lower() not in ("0", "false", "no")
 REMEMBER_LOGIN_PERSISTENT = os.getenv("REMEMBER_LOGIN_PERSISTENT", "0").strip().lower() in ("1", "true", "yes")
-DISABLE_LOGIN_COOKIES = os.getenv("DISABLE_LOGIN_COOKIES", "1").strip().lower() in ("1", "true", "yes")
+REFRESH_FALLBACK_ENABLED = os.getenv("REFRESH_FALLBACK_ENABLED", "0").strip().lower() in ("1", "true", "yes")
 REFRESH_COOKIE_NAME = "qr_refresh_token"
 REFRESH_COOKIE_DAYS = int(os.getenv("REFRESH_COOKIE_DAYS", "7"))
 COOKIE_MANAGER = stx.CookieManager(key="auth_cookie_manager")
 AUTH_RESTORE_TRIES_KEY = "_auth_restore_tries"
 REFRESH_FALLBACK_FILE = Path.home() / ".streamlit" / "qr_refresh_token.txt"
-REFRESH_FALLBACK_ENABLED = os.getenv("REFRESH_FALLBACK_ENABLED", "0").strip().lower() in ("1", "true", "yes")
 FORCE_LOGOUT_KEY = "_force_logout"
 FORCE_LOGOUT_FILE = Path.home() / ".streamlit" / "qr_force_logout.flag"
 
@@ -93,16 +92,7 @@ def api_delete(path: str):
 
 
 def _get_refresh_cookie() -> str | None:
-    if DISABLE_LOGIN_COOKIES:
-        return None
-    cache_run = st.session_state.get("_cookie_cache_run")
-    current_run = st.session_state.get("_run_id")
-    if cache_run == current_run and "_cookie_cache" in st.session_state:
-        cookies = st.session_state.get("_cookie_cache")
-    else:
-        cookies = COOKIE_MANAGER.get_all()
-        st.session_state["_cookie_cache"] = cookies
-        st.session_state["_cookie_cache_run"] = current_run
+    cookies = COOKIE_MANAGER.get_all()
     if not cookies or not isinstance(cookies, dict):
         return None
 
@@ -115,8 +105,6 @@ def _get_refresh_cookie() -> str | None:
 
 
 def _set_refresh_cookie(token: str) -> None:
-    if DISABLE_LOGIN_COOKIES:
-        return
     if REMEMBER_LOGIN_PERSISTENT:
         COOKIE_MANAGER.set(
             REFRESH_COOKIE_NAME,
@@ -135,8 +123,6 @@ def _set_refresh_cookie(token: str) -> None:
 
 
 def _clear_refresh_cookie() -> None:
-    if DISABLE_LOGIN_COOKIES:
-        return
     try:
         COOKIE_MANAGER.delete(REFRESH_COOKIE_NAME)
     except Exception:
@@ -205,17 +191,9 @@ def _is_force_logout_active() -> bool:
 def try_restore_auth_from_refresh_cookie() -> None:
     if not REMEMBER_LOGIN:
         return
+
     if _is_force_logout_active():
         return
-
-    if not REMEMBER_LOGIN_PERSISTENT:
-        if st.session_state.get("_cleared_persistent_cookie") is None:
-            existing = _get_refresh_cookie()
-            if existing:
-                st.session_state["_cleared_persistent_cookie"] = True
-                _clear_refresh_cookie()
-                _clear_refresh_token_from_disk()
-                return
 
     if st.session_state.get("auth"):
         st.session_state[AUTH_RESTORE_TRIES_KEY] = 0
@@ -297,8 +275,6 @@ def flash_show(tab: str):
 # --------------------------------------------------
 if "auth" not in st.session_state:
     st.session_state.auth = None
-
-st.session_state["_run_id"] = st.session_state.get("_run_id", 0) + 1
 
 if "show_dni_modal" not in st.session_state:
     st.session_state.show_dni_modal = False
@@ -411,11 +387,11 @@ if resp is not None and resp.status_code == 200 and not resp.json().get("initial
 
     st.stop()
 
-if not REMEMBER_LOGIN:
+if REMEMBER_LOGIN:
+    try_restore_auth_from_refresh_cookie()
+else:
     _clear_refresh_cookie()
     _clear_refresh_token_from_disk()
-else:
-    try_restore_auth_from_refresh_cookie()
 
 # --------------------------------------------------
 # LOGIN
