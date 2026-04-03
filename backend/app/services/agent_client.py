@@ -25,7 +25,7 @@ except Exception:
 
 def _headers(agent_token: Optional[str] = None) -> Dict[str, str]:
     h: Dict[str, str] = {"Content-Type": "application/json"}
-    token = agent_token if agent_token is not None else TOKEN
+    token = (agent_token or TOKEN or "").strip()
     if token:
         h["X-Agent-Token"] = token
     return h
