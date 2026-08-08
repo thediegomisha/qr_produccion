@@ -222,6 +222,9 @@ pip install -r requirements.txt
 ```
 
 ---
+Para Instalar la tipografia en la pagina de impresión
+
+sudo apt install -y fonts-dejavu fonts-liberation fonts-noto-core
 
 👤 Autor
 
