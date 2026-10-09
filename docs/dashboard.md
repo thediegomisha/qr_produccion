@@ -4,12 +4,12 @@
 
 Disponible para ROOT, GERENCIA y SUPERVISOR. Filtros: rango de fechas (hora de Perú) y lote.
 
-Métricas generadas:
+El diseño sigue el modelo de tableros estilo Plecto (números grandes en tarjetas, ranking del personal y visuales limpios), recreado en Streamlit:
 
-- **Cajas por día**: barras agrupadas por día (hora local `America/Lima`) con separación entre cajas empacadas (`emp`) y seleccionadas (`sel`) según el payload del QR (`raw.id` numérico = empacador, alfabético = seleccionador).
-- **Cajas por lote**: total acumulado por código de lote en el rango.
-- **Eficiencia del personal**: cajas por trabajador, con conteo empacadas/seleccionadas, días trabajados, sesiones y **cajas por hora activa**. Las horas activas se calculan desde la primera hasta la última lectura de cada sesión (mínimo 1 minuto por sesión).
-- Serie **por día y persona** disponible en `/api/dashboard/eficiencia-por-dia`.
+1. **Tarjetas KPI** con números grandes y acentos de color: Cajas totales, Empacadas, Seleccionadas, Personas activas y Días trabajados.
+2. **Gráfica principal: Cajas por lote** — barras apiladas horizontales por código de lote, separando cajas **empacadas** (`raw.id` numérico) y **seleccionadas** (`raw.id` alfabético), con tabla resumen debajo.
+3. **Eficiencia del personal** — ranking estilo leaderboard con medallas 🥇🥈🥉 para el top 3, cajas totales y cajas/hora de cada trabajador. La eficiencia se calcula como cajas por hora activa (primera a última lectura de cada sesión, mínimo 1 minuto), seguida de la gráfica de cajas/hora y la tabla completa.
+4. **Cajas por día (vista secundaria)** — dentro de un panel desplegable al final; distribución diaria de empacadas/seleccionadas para revisión puntual.
 
 Endpoints (requieren token con rol ROOT, GERENCIA o SUPERVISOR):
 
@@ -31,3 +31,5 @@ Solo el usuario **ROOT** ve la grilla editable en la pestaña Lotes. Se seleccio
 ```bash
 TEST_DATABASE_URL=postgresql+psycopg2://user@host/qr_lotes_test python -m pytest -q
 ```
+
+Las pruebas del dashboard verifican el orden de las secciones (lote primero, día como secundaria), los valores de las tarjetas KPI, el ranking con medallas y las tablas por lote y por persona.

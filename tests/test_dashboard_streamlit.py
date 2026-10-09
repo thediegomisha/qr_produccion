@@ -53,33 +53,71 @@ def _seed(client, session_factory, engine):
     return lote
 
 
-def test_dashboard_renders_metrics_and_charts_for_supervisor(ui_api, client, session_factory, engine, user):
+def _run_with_dates(at, day: date):
+    at.date_input(key="dashboard_desde").set_value(day)
+    at.date_input(key="dashboard_hasta").set_value(day)
+    at = at.run(timeout=20)
+    assert not at.exception
+    return at
+
+
+def test_dashboard_is_lote_first_with_plecto_style_kpis(ui_api, client, session_factory, engine, user):
     lote = _seed(client, session_factory, engine)
     user["rol"] = "SUPERVISOR"
     ui_api.ROLE = "SUPERVISOR"
-    at = AppTest.from_string(SCRIPT)
-    at = at.run(timeout=20)
+    at = AppTest.from_string(SCRIPT).run(timeout=20)
     assert not at.exception
-    at.date_input(key="dashboard_desde").set_value(date(2026, 1, 5))
-    at.date_input(key="dashboard_hasta").set_value(date(2026, 1, 5))
-    at = at.run(timeout=20)
-    assert not at.exception
-    metrics = {m.label: m.value for m in at.metric}
-    assert metrics["Cajas totales"] == "3"
-    assert metrics["Empacadas"] == "2"
-    assert metrics["Seleccionadas"] == "1"
-    assert metrics["Personas activas"] == "2"
-    # Eficiencia table lists the known worker and unknown DNI as SIN REGISTRO
-    efficiency = at.dataframe[-1].value
-    ana = efficiency[efficiency["dni"] == "11111111"].iloc[0]
+    at = _run_with_dates(at, date(2026, 1, 5))
+
+    values = [m.value for m in at.markdown]
+
+    # Tarjetas KPI estilo Plecto: números grandes dentro de tarjetas HTML.
+    kpis = {
+        "Cajas totales": "3",
+        "Empacadas": "2",
+        "Seleccionadas": "1",
+        "Personas activas": "2",
+        "Días trabajados": "1",
+    }
+    for label, number in kpis.items():
+        card = next(v for v in values if label in v)
+        assert f">{number}<" in card, f"KPI {label} no muestra {number}"
+
+    # La gráfica por LOTE es la sección principal y aparece antes que la vista por día.
+    idx_lote = next(i for i, v in enumerate(values) if "Cajas por lote" in v)
+    idx_dia = next(i for i, v in enumerate(values) if "Cajas por día" in v)
+    assert idx_lote < idx_dia
+
+    # El ranking estilo Plecto muestra medallas para el personal.
+    assert "🥇" in "".join(values)
+
+    # La tabla resumen por lote muestra el lote sembrado con sus totales.
+    lote_table = next(df.value for df in at.dataframe if "lote" in df.value.columns)
+    fila = lote_table[lote_table["lote"] == lote["codigo"]].iloc[0]
+    assert fila["total"] == 3
+    assert fila["empacadas"] == 2
+    assert fila["seleccionadas"] == 1
+
+    # La tabla de eficiencia lista al trabajador conocido.
+    eff_table = next(df.value for df in at.dataframe if "persona" in df.value.columns)
+    ana = eff_table[eff_table["dni"] == "11111111"].iloc[0]
     assert ana["persona"] == "PEREZ  ANA"
     assert ana["total_cajas"] == 2
 
-    # Filtro por lote conserva las métricas
-    lotes = at.selectbox(key="dashboard_lote")
-    lotes.set_value(lote["codigo"])
+    # Filtrar por el lote mantiene la página funcionando.
+    at.selectbox(key="dashboard_lote").set_value(lote["codigo"])
     at = at.run(timeout=20)
     assert not at.exception
+
+
+def test_dashboard_empty_range_shows_info(ui_api, client, engine, user):
+    if engine.dialect.name != "postgresql":
+        pytest.skip("El dashboard requiere PostgreSQL")
+    user["rol"] = "SUPERVISOR"
+    ui_api.ROLE = "SUPERVISOR"
+    at = AppTest.from_string(SCRIPT).run(timeout=20)
+    assert not at.exception
+    assert any("No hay lecturas" in info.value for info in at.info)
 
 
 def test_dashboard_blocks_operators(ui_api, client, engine, user):
