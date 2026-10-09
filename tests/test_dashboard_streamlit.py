@@ -41,7 +41,7 @@ def _seed(client, session_factory, engine):
     if engine.dialect.name != "postgresql":
         pytest.skip("El dashboard requiere PostgreSQL")
     lote = client.post("/api/lotes", json={"codigo": "DASH-1"}).json()
-    when = datetime(2026, 1, 5, 17, 0, tzinfo=timezone.utc)
+    when = datetime(2026, 1, 5, 17, 0, tzinfo=timezone.utc).astimezone(timezone.utc).replace(tzinfo=None)
     with session_factory() as db:
         db.add(Trabajador(dni="11111111", nombre="ANA", apellido_paterno="PEREZ", apellido_materno=None,
                           rol="EMPACADOR", num_orden=1, cod_letra="A001", activo=True))
@@ -103,6 +103,15 @@ def test_dashboard_is_lote_first_with_plecto_style_kpis(ui_api, client, session_
     ana = eff_table[eff_table["dni"] == "11111111"].iloc[0]
     assert ana["persona"] == "PEREZ  ANA"
     assert ana["total_cajas"] == 2
+
+    # Secciones del paquete completo: donut, ritmo horario, meta, heatmap y actividad.
+    joined = "\n".join(values)
+    assert "Distribución" in joined
+    assert "Ritmo por hora del día" in joined
+    assert "Tendencia diaria vs meta" in joined
+    assert "Producción por persona y lote" in joined
+    assert "Actividad reciente" in joined
+    assert at.number_input(key="dashboard_meta") is not None
 
     # Filtrar por el lote mantiene la página funcionando.
     at.selectbox(key="dashboard_lote").set_value(lote["codigo"])

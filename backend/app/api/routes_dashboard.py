@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 
 from app.core.auth_dep import get_current_user
@@ -34,7 +34,6 @@ def cajas_por_dia(
     user=Depends(get_current_user),
 ):
     if not _allowed(user):
-        from fastapi import HTTPException
         raise HTTPException(403, "Sin permisos para el dashboard")
 
     lote = _clean_optional(lote_codigo)
@@ -84,7 +83,6 @@ def eficiencia_personal(
     user=Depends(get_current_user),
 ):
     if not _allowed(user):
-        from fastapi import HTTPException
         raise HTTPException(403, "Sin permisos para el dashboard")
 
     lote = _clean_optional(lote_codigo)
@@ -184,7 +182,6 @@ def eficiencia_por_dia(
     user=Depends(get_current_user),
 ):
     if not _allowed(user):
-        from fastapi import HTTPException
         raise HTTPException(403, "Sin permisos para el dashboard")
 
     lote = _clean_optional(lote_codigo)
@@ -220,6 +217,170 @@ def eficiencia_por_dia(
     return {
         "date_from": date_from,
         "date_to": date_to,
+        "lote_codigo": lote,
+        "rows": [dict(r) for r in rows],
+    }
+
+
+# -------------------------
+# Ritmo por hora del día (hora local de la operación)
+# -------------------------
+@router.get("/cajas-por-hora")
+def cajas_por_hora(
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    lote_codigo: Optional[str] = Query(None),
+    user=Depends(get_current_user),
+):
+    if not _allowed(user):
+        raise HTTPException(403, "Sin permisos para el dashboard")
+
+    lote = _clean_optional(lote_codigo)
+    date_from = _clean_optional(date_from)
+    date_to = _clean_optional(date_to)
+
+    sql = text("""
+        SELECT
+            EXTRACT(HOUR FROM (se.scanned_at AT TIME ZONE 'UTC' AT TIME ZONE :tz))::int AS hora,
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[0-9]+$')::int AS empacadas,
+            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[A-Za-z]+$')::int AS seleccionadas
+        FROM scan_events se
+        LEFT JOIN lotes l ON l.id = se.lote_id
+        WHERE (CAST(:date_from AS date) IS NULL OR se.scanned_at >= (CAST(:date_from AS date))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
+          AND (CAST(:date_to AS date) IS NULL OR se.scanned_at < ((CAST(:date_to AS date) + 1))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
+          AND (:lote IS NULL OR l.codigo = :lote)
+        GROUP BY hora
+        ORDER BY hora
+    """)
+
+    with SessionLocal() as db:
+        rows = db.execute(sql, {
+            "tz": _TIMEZONE,
+            "date_from": date_from,
+            "date_to": date_to,
+            "lote": lote,
+        }).mappings().all()
+
+    return {
+        "date_from": date_from,
+        "date_to": date_to,
+        "lote_codigo": lote,
+        "rows": [dict(r) for r in rows],
+    }
+
+
+# -------------------------
+# Producción por persona y lote (matriz para heatmap)
+# -------------------------
+@router.get("/produccion-persona-lote")
+def produccion_persona_lote(
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    lote_codigo: Optional[str] = Query(None),
+    user=Depends(get_current_user),
+):
+    if not _allowed(user):
+        raise HTTPException(403, "Sin permisos para el dashboard")
+
+    lote = _clean_optional(lote_codigo)
+    date_from = _clean_optional(date_from)
+    date_to = _clean_optional(date_to)
+
+    sql = text("""
+        SELECT
+            se.dni,
+            COALESCE(
+                NULLIF(
+                    TRIM(
+                        t.apellido_paterno || ' ' ||
+                        COALESCE(t.apellido_materno, '') || ' ' ||
+                        COALESCE(t.nombre, '')
+                    ),
+                    ''
+                ),
+                'SIN REGISTRO'
+            ) AS persona,
+            COALESCE(l.codigo, 'SIN LOTE') AS lote,
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[0-9]+$')::int AS empacadas,
+            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[A-Za-z]+$')::int AS seleccionadas
+        FROM scan_events se
+        LEFT JOIN lotes l ON l.id = se.lote_id
+        LEFT JOIN trabajadores t ON TRIM(t.dni) = TRIM(se.dni) AND t.activo = true
+        WHERE (CAST(:date_from AS date) IS NULL OR se.scanned_at >= (CAST(:date_from AS date))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
+          AND (CAST(:date_to AS date) IS NULL OR se.scanned_at < ((CAST(:date_to AS date) + 1))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
+          AND (:lote IS NULL OR l.codigo = :lote)
+        GROUP BY se.dni, persona, lote
+        ORDER BY persona, total DESC
+    """)
+
+    with SessionLocal() as db:
+        rows = db.execute(sql, {
+            "tz": _TIMEZONE,
+            "date_from": date_from,
+            "date_to": date_to,
+            "lote": lote,
+        }).mappings().all()
+
+    return {
+        "date_from": date_from,
+        "date_to": date_to,
+        "lote_codigo": lote,
+        "rows": [dict(r) for r in rows],
+    }
+
+
+# -------------------------
+# Actividad reciente (últimas lecturas)
+# -------------------------
+@router.get("/actividad-reciente")
+def actividad_reciente(
+    lote_codigo: Optional[str] = Query(None),
+    limit: int = Query(10, ge=1, le=50),
+    user=Depends(get_current_user),
+):
+    if not _allowed(user):
+        raise HTTPException(403, "Sin permisos para el dashboard")
+
+    lote = _clean_optional(lote_codigo)
+
+    sql = text("""
+        SELECT
+            se.token,
+            se.dni,
+            COALESCE(
+                NULLIF(
+                    TRIM(
+                        t.apellido_paterno || ' ' ||
+                        COALESCE(t.apellido_materno, '') || ' ' ||
+                        COALESCE(t.nombre, '')
+                    ),
+                    ''
+                ),
+                'SIN REGISTRO'
+            ) AS persona,
+            COALESCE(l.codigo, 'SIN LOTE') AS lote,
+            CASE
+                WHEN (se.raw->>'id') ~ '^[0-9]+$' THEN 'Empacada'
+                ELSE 'Seleccionada'
+            END AS tipo,
+            se.scanned_at
+        FROM scan_events se
+        LEFT JOIN lotes l ON l.id = se.lote_id
+        LEFT JOIN trabajadores t ON TRIM(t.dni) = TRIM(se.dni) AND t.activo = true
+        WHERE (:lote IS NULL OR l.codigo = :lote)
+        ORDER BY se.scanned_at DESC
+        LIMIT :limite
+    """)
+
+    with SessionLocal() as db:
+        rows = db.execute(sql, {
+            "lote": lote,
+            "limite": limit,
+        }).mappings().all()
+
+    return {
         "lote_codigo": lote,
         "rows": [dict(r) for r in rows],
     }

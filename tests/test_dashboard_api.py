@@ -7,6 +7,8 @@ from app.db.models import Lote, ScanEvent, Trabajador
 
 
 def _make_scan(db, token, dni, lote_id, scanned_at, marker, user_id="op1", session_uuid="s1"):
+    # Igual que el backend: almacenar UTC explícito en columna sin zona horaria.
+    scanned_at = scanned_at.astimezone(timezone.utc).replace(tzinfo=None)
     db.add(ScanEvent(
         token=token,
         dni=dni,
@@ -104,3 +106,51 @@ def test_eficiencia_por_dia_without_trabajador_for_dni(client, session_factory, 
     unknown = next(r for r in rows if r["dni"] == "99999999")
     assert unknown["persona"] == "SIN REGISTRO"
     assert unknown["rol_trabajador"] == "DESCONOCIDO"
+
+
+def test_cajas_por_hora_groups_by_local_hour(client, seeded):
+    rows = client.get("/api/dashboard/cajas-por-hora",
+                      params={"date_from": "2026-01-05", "date_to": "2026-01-05"}).json()["rows"]
+    por_hora = {r["hora"]: r for r in rows}
+    assert por_hora[12]["total"] == 2
+    assert por_hora[12]["empacadas"] == 1
+    assert por_hora[12]["seleccionadas"] == 1
+    assert por_hora[14]["total"] == 1 and por_hora[14]["empacadas"] == 1
+    todos = client.get("/api/dashboard/cajas-por-hora").json()["rows"]
+    assert sum(r["total"] for r in todos) == 4
+
+
+def test_produccion_persona_lote_builds_matrix(client, seeded):
+    rows = client.get("/api/dashboard/produccion-persona-lote").json()["rows"]
+    matriz = {(r["persona"], r["lote"]): r for r in rows}
+    ana_a = matriz[("PEREZ RUIZ ANA", "LOTE-A")]
+    assert ana_a["total"] == 2 and ana_a["empacadas"] == 2 and ana_a["seleccionadas"] == 0
+    luis_a = matriz[("SOTO  LUIS", "LOTE-A")]
+    assert luis_a["total"] == 1 and luis_a["seleccionadas"] == 1
+    ana_b = matriz[("PEREZ RUIZ ANA", "LOTE-B")]
+    assert ana_b["total"] == 1 and ana_b["empacadas"] == 1
+    filtrado = client.get("/api/dashboard/produccion-persona-lote",
+                          params={"lote_codigo": "LOTE-B"}).json()["rows"]
+    assert len(filtrado) == 1 and filtrado[0]["lote"] == "LOTE-B"
+
+
+def test_actividad_reciente_returns_latest_first(client, seeded):
+    rows = client.get("/api/dashboard/actividad-reciente").json()["rows"]
+    assert len(rows) == 4
+    assert rows[0]["token"] == "t4" and rows[0]["lote"] == "LOTE-B"
+    assert rows[0]["tipo"] == "Empacada"
+    assert rows[0]["persona"] == "PEREZ RUIZ ANA"
+    por_lote = client.get("/api/dashboard/actividad-reciente",
+                          params={"lote_codigo": "LOTE-A"}).json()["rows"]
+    assert len(por_lote) == 3 and all(r["lote"] == "LOTE-A" for r in por_lote)
+    limitado = client.get("/api/dashboard/actividad-reciente", params={"limit": 2}).json()["rows"]
+    assert len(limitado) == 2
+    fuera_de_rango = client.get("/api/dashboard/actividad-reciente", params={"limit": 0}).status_code == 422
+
+
+def test_new_dashboard_endpoints_reject_operators(client, user, seeded):
+    user["rol"] = "OPERADOR"
+    for path in ("/api/dashboard/cajas-por-hora",
+                 "/api/dashboard/produccion-persona-lote",
+                 "/api/dashboard/actividad-reciente"):
+        assert client.get(path).status_code == 403

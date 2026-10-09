@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from sqlalchemy import text
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 
 from app.db.base import SessionLocal
@@ -134,6 +134,12 @@ def upload_batch(payload: BatchIn, user=Depends(get_current_user)):
 
             raw_json = json.dumps(raw_dict) if raw_dict else None
 
+            # La columna es timestamp sin zona: normalizar a UTC explícito para que
+            # la hora almacenada no dependa de la zona horaria del servidor.
+            scanned_at = s.scanned_at
+            if scanned_at.tzinfo is not None:
+                scanned_at = scanned_at.astimezone(timezone.utc).replace(tzinfo=None)
+
             r = db.execute(
                 insert_sql,
                 {
@@ -141,7 +147,7 @@ def upload_batch(payload: BatchIn, user=Depends(get_current_user)):
                     "dni": dni,
                     "user_id": user["usuario"],
                     "device_id": payload.device_id,
-                    "scanned_at": s.scanned_at,
+                    "scanned_at": scanned_at,
                     "batch_uuid": payload.batch_uuid,
                     "session_uuid": payload.session_uuid,
                     "raw": raw_json,

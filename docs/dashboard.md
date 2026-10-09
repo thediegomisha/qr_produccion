@@ -8,16 +8,28 @@ El diseño sigue el modelo de tableros estilo Plecto (números grandes en tarjet
 
 1. **Tarjetas KPI** con números grandes y acentos de color: Cajas totales, Empacadas, Seleccionadas, Personas activas y Días trabajados.
 2. **Gráfica principal: Cajas por lote** — barras apiladas horizontales por código de lote, separando cajas **empacadas** (`raw.id` numérico) y **seleccionadas** (`raw.id` alfabético), con tabla resumen debajo.
-3. **Eficiencia del personal** — ranking estilo leaderboard con medallas 🥇🥈🥉 para el top 3, cajas totales y cajas/hora de cada trabajador. La eficiencia se calcula como cajas por hora activa (primera a última lectura de cada sesión, mínimo 1 minuto), seguida de la gráfica de cajas/hora y la tabla completa.
-4. **Cajas por día (vista secundaria)** — dentro de un panel desplegable al final; distribución diaria de empacadas/seleccionadas para revisión puntual.
+3. **Distribución (donut)** — proporción empacadas/seleccionadas con el total al centro.
+4. **Ritmo por hora del día** — barras de cajas por hora (hora de Perú) con hora pico destacada.
+5. **Tendencia diaria vs meta** — línea de cajas/día con meta configurable (`Meta cajas/día`) y % de avance sobre el promedio.
+6. **Producción por persona y lote (heatmap)** — matriz de intensidad: quién trabajó en cada lote y cuánto.
+7. **Eficiencia del personal** — ranking estilo leaderboard con medallas 🥇🥈🥉 para el top 3, cajas totales y cajas/hora de cada trabajador. La eficiencia se calcula como cajas por hora activa (primera a última lectura de cada sesión, mínimo 1 minuto), seguida de la gráfica de cajas/hora y la tabla completa.
+8. **Actividad reciente** — últimas 10 lecturas en vivo (hora local, persona, lote, tipo).
+9. **Cajas por día (vista secundaria)** — dentro de un panel desplegable al final; distribución diaria de empacadas/seleccionadas para revisión puntual.
+
+El tablero se **actualiza automáticamente cada 30 segundos** (modo tablero de TV estilo Plecto).
 
 Endpoints (requieren token con rol ROOT, GERENCIA o SUPERVISOR):
 
 | Ruta | Contenido |
 |---|---|
 | `GET /api/dashboard/cajas-por-dia` | Filas `dia, lote, total, empacadas, seleccionadas` |
+| `GET /api/dashboard/cajas-por-hora` | Filas `hora, total, empacadas, seleccionadas` (hora de Perú) |
 | `GET /api/dashboard/eficiencia-personal` | Filas por DNI con totales y `cajas_por_hora` |
 | `GET /api/dashboard/eficiencia-por-dia` | Filas por día y DNI |
+| `GET /api/dashboard/produccion-persona-lote` | Matriz persona × lote para el heatmap |
+| `GET /api/dashboard/actividad-reciente` | Últimas lecturas (`lote_codigo` y `limit` opcionales) |
+
+Las horas se almacenan como **UTC explícito** en `scanned_at` (normalizado al recibir el lote de la APK), de modo que la conversión a hora de Perú no depende de la zona horaria configurada en el servidor de base de datos.
 
 ## Eliminación masiva de lotes
 
