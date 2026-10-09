@@ -36,6 +36,7 @@ def _save_selection(agent_url: str, printer_name: str, agent_token: str) -> None
     path = _persist_path()
     payload = {"agent_url": agent_url, "printer_name": printer_name, "agent_token": agent_token}
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    path.chmod(0o600)
 
 
 # ============================
@@ -104,13 +105,14 @@ def show_printers_panel():
         agent_url = st.text_input(
             "Agent base URL",
             value=default_url,
-            help="Si el Print Agent corre en ESTA MISMA PC, usa http://127.0.0.1:5000",
+            help="Dirección estable del servidor que ejecuta el Print Agent. No es la IP de la impresora Ethernet.",
             key="printer_agent_url_input",
         ).rstrip("/")
 
+        default_token = saved.get("agent_token") or st.session_state.get("selected_printer_agent_token") or _get_agent_token_from_ui()
         agent_token = st.text_input(
             "Agent token (X-Agent-Token)",
-            value=_get_agent_token_from_ui(),
+            value=default_token,
             type="password",
             key="printer_agent_token_input",
         )
@@ -195,4 +197,4 @@ def show_printers_panel():
         except Exception as e:
             st.error(f"Error enviando la impresión: {e}")
 
-    st.caption("Si cambias de PC, recuerda: el Print Agent debe correr en ESA PC y el firewall debe permitir TCP 5000.")
+    st.caption("El Print Agent puede permanecer en un servidor independiente. La web debe tener acceso a su dirección y puerto; los usuarios solo necesitan el navegador.")

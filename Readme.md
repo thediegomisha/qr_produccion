@@ -1,5 +1,13 @@
 # 📦 Sistema de Generación y Gestión de Códigos QR
 
+## Gestión de lotes
+
+La pestaña Lotes dispone de creación, búsqueda, paginación, edición y eliminación completa con sus lecturas asociadas. Ver [funcionalidad, permisos y pruebas del CRUD de lotes](docs/lotes-crud.md).
+
+## Actualizar la web sin reinstalar la impresión
+
+El proyecto permite generar un paquete exclusivo de backend/frontend y desplegarlo en un entorno separado del Print Agent. Después de la preparación inicial del servidor, las mejoras web se aplican con `sudo actualizar-qr-web paquete.zip`. Ver [despliegue web independiente](docs/despliegue-web.md).
+
 Producto orientado a la **generación, administración y validación de códigos QR**, desarrollado como una **aplicación web en Python + Streamlit**, con persistencia en **PostgreSQL** y soporte para **lectura desde dispositivos móviles**.
 
 El sistema permite asociar información estructurada a cada QR (por ejemplo: DNI, UID, fecha de proceso), facilitando su uso en escenarios de control, registro e impresión.

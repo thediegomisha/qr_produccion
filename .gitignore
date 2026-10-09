@@ -12,6 +12,7 @@ venv/
 
 # Python cache/test artifacts
 .pytest_cache/
+/test-results/
 __pycache__/
 *.pyc
 
@@ -21,3 +22,4 @@ __pycache__/
 *.db-wal
 .dev_backend.pid
 backups/
+/dist/
