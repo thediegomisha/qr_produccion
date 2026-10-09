@@ -51,6 +51,7 @@ def sections_for_role(role: str) -> list[str]:
     role = (role or "").upper()
     if role in ("ROOT", "GERENCIA"):
         return [
+            SECTION_DASHBOARD,
             SECTION_USERS,
             SECTION_PRODUCTOS,
             SECTION_LISTAR,
@@ -59,18 +60,17 @@ def sections_for_role(role: str) -> list[str]:
             SECTION_VIGILANCIA,
             SECTION_IMPRESORAS,
             SECTION_REPORTES,
-            SECTION_DASHBOARD,
             SECTION_LOTES,
             SECTION_CONSULTAS,
         ]
     if role == "SUPERVISOR":
         return [
+            SECTION_DASHBOARD,
             SECTION_LISTAR,
             SECTION_IMPRESION,
             SECTION_TRABAJADORES,
             SECTION_IMPRESORAS,
             SECTION_REPORTES,
-            SECTION_DASHBOARD,
             SECTION_LOTES,
             SECTION_CONSULTAS,
         ]
