@@ -1,5 +1,13 @@
 # 📦 Sistema de Generación y Gestión de Códigos QR
 
+## Un único proyecto para descargar
+
+La rama principal **main** reúne las funcionalidades aprobadas de backend, Streamlit e impresión. Para descargar el proyecto completo, abrir el repositorio principal y utilizar **Code → Download ZIP**; no es necesario elegir una rama de desarrollo ni descargar varios proyectos.
+
+Descarga directa: https://github.com/thediegomisha/qr_produccion/archive/refs/heads/main.zip
+
+El ZIP contiene una sola carpeta de proyecto con sus módulos internos (`backend`, `ui_web` y `scripts`). Las ramas de trabajo se utilizan para desarrollar/probar cambios y se integran en `main` cuando están aprobados. La configuración propia del servidor y sus datos se conservan durante las actualizaciones según el procedimiento de despliegue.
+
 ## Gestión de lotes
 
 La pestaña Lotes dispone de creación, búsqueda, paginación, edición y eliminación completa con sus lecturas asociadas. Ver [funcionalidad, permisos y pruebas del CRUD de lotes](docs/lotes-crud.md).

@@ -2,7 +2,7 @@ name: Pruebas CRUD de lotes
 
 on:
   push:
-    branches: [feature/crud-lotes]
+    branches: [main, feature/crud-lotes]
   pull_request:
     branches: [main]
   workflow_dispatch:
