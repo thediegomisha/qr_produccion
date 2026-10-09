@@ -14,7 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        # Espejo público de la imagen oficial para evitar el límite de Docker Hub.
+        image: public.ecr.aws/docker/library/postgres:16
         env:
           POSTGRES_USER: qr_test
           POSTGRES_PASSWORD: qr_test
