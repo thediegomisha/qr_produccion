@@ -100,7 +100,7 @@ def upload_batch(payload: BatchIn, user=Depends(get_current_user)):
     with SessionLocal() as db:
         # 1) Resolver / crear lote
         lote_row = db.execute(
-            text("SELECT id, estado FROM lotes WHERE codigo = :c"),
+            text("SELECT id, estado FROM lotes WHERE codigo = :c FOR UPDATE"),
             {"c": lote_codigo},
         ).fetchone()
 
@@ -113,8 +113,6 @@ def upload_batch(payload: BatchIn, user=Depends(get_current_user)):
                 """),
                 {"c": lote_codigo, "u": user.get("usuario")},
             ).fetchone()
-            db.commit()
-
         if lote_row.estado == "CERRADO":
             raise HTTPException(409, f"Lote {lote_codigo} está CERRADO")
 

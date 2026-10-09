@@ -1,128 +1,212 @@
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from sqlalchemy import text
-from typing import List, Dict, Any
+from datetime import datetime
+from typing import Literal
 
-from app.db.base import SessionLocal
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
+
 from app.core.auth_dep import get_current_user
+from app.db.base import SessionLocal
+from app.db.models import Lote, ScanEvent
 
 router = APIRouter(prefix="/lotes", tags=["lotes"])
-# router = APIRouter(prefix="/scans", tags=["scans"])
+
+
+def _norm(codigo: str) -> str:
+    return codigo.strip().upper()
 
 
 class EnsureLoteIn(BaseModel):
-    codigo: str
+    codigo: str = Field(min_length=1, max_length=64)
+
+    @field_validator("codigo", mode="before")
+    @classmethod
+    def normalize_codigo(cls, value):
+        if not isinstance(value, str):
+            return value
+        value = _norm(value)
+        if any(ord(char) < 32 or ord(char) == 127 or char in "/\\" for char in value):
+            raise ValueError("El código no admite barras ni caracteres de control")
+        return value
 
 
-def _norm(c: str) -> str:
-    return (c or "").strip().upper()
+class UpdateLoteIn(EnsureLoteIn):
+    estado: Literal["ABIERTO", "CERRADO"]
+
+
+def _require_role(user: dict, *roles: str):
+    if (user.get("rol") or "").upper() not in roles:
+        raise HTTPException(403, "No tienes permisos para esta operación de lotes")
+
+
+def _serialize(lote: Lote, total_lecturas: int = 0) -> dict:
+    return {
+        "id": lote.id,
+        "codigo": lote.codigo,
+        "estado": lote.estado,
+        "creado_por": lote.creado_por,
+        "creado_en": lote.creado_en,
+        "cerrado_por": lote.cerrado_por,
+        "cerrado_en": lote.cerrado_en,
+        "reabierto_por": lote.reabierto_por,
+        "reabierto_en": lote.reabierto_en,
+        "total_lecturas": total_lecturas,
+    }
+
+
+def _by_id(db, lote_id: int, *, lock: bool = False) -> Lote:
+    query = db.query(Lote).filter(Lote.id == lote_id)
+    if lock:
+        query = query.with_for_update()
+    lote = query.first()
+    if lote is None:
+        raise HTTPException(404, "Lote no existe")
+    return lote
+
+
+def _set_estado(lote: Lote, estado: str, user: dict):
+    if lote.estado == estado:
+        return
+    if estado == "ABIERTO":
+        _require_role(user, "ROOT")
+        lote.reabierto_en = datetime.utcnow()
+        lote.reabierto_por = user.get("usuario")
+    else:
+        lote.cerrado_en = datetime.utcnow()
+        lote.cerrado_por = user.get("usuario")
+    lote.estado = estado
 
 
 @router.post("/ensure")
 def ensure_lote(payload: EnsureLoteIn, user=Depends(get_current_user)):
-    codigo = _norm(payload.codigo)
-    if not codigo:
-        raise HTTPException(400, "Código inválido")
-
+    # Preserve the idempotent endpoint used by existing Android clients.
     with SessionLocal() as db:
-        r = db.execute(
-            text("SELECT id, codigo, estado FROM lotes WHERE codigo = :c"),
-            {"c": codigo},
-        ).fetchone()
+        lote = db.query(Lote).filter(Lote.codigo == payload.codigo).first()
+        if lote is None:
+            lote = Lote(codigo=payload.codigo, estado="ABIERTO", creado_por=user.get("usuario"))
+            db.add(lote)
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
+                # Another request may have ensured the same code concurrently.
+                lote = db.query(Lote).filter(Lote.codigo == payload.codigo).first()
+                if lote is None:
+                    raise HTTPException(409, "No se pudo crear el lote")
+        count = db.query(ScanEvent).filter(ScanEvent.lote_id == lote.id).count()
+        return _serialize(lote, count)
 
-        if r is None:
-            r = db.execute(
-                text("""
-                    INSERT INTO lotes (codigo, estado, creado_por)
-                    VALUES (:c, 'ABIERTO', :u)
-                    RETURNING id, codigo, estado
-                """),
-                {"c": codigo, "u": user.get("usuario")},
-            ).fetchone()
+
+@router.post("", status_code=201)
+def create_lote(payload: EnsureLoteIn, user=Depends(get_current_user)):
+    _require_role(user, "ROOT", "GERENCIA", "SUPERVISOR")
+    with SessionLocal() as db:
+        lote = Lote(codigo=payload.codigo, estado="ABIERTO", creado_por=user.get("usuario"))
+        db.add(lote)
+        try:
             db.commit()
-
-    return {"id": r.id, "codigo": r.codigo, "estado": r.estado}
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(409, "Ya existe un lote con ese código")
+        return _serialize(lote)
 
 
 @router.get("")
-def list_lotes(limit: int = 50, user=Depends(get_current_user)):
-    limit = min(max(limit, 10), 200)
-
+def list_lotes(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    q: str = Query("", max_length=64),
+    estado: Literal["ABIERTO", "CERRADO"] | None = None,
+    user=Depends(get_current_user),
+):
     with SessionLocal() as db:
-        rows = db.execute(
-            text("""
-                SELECT id, codigo, estado, creado_en,
-                       cerrado_en, reabierto_en
-                FROM lotes
-                ORDER BY creado_en DESC
-                LIMIT :l
-            """),
-            {"l": limit},
-        ).fetchall()
+        filters = []
+        if q.strip():
+            escaped = _norm(q).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            filters.append(Lote.codigo.ilike(f"%{escaped}%", escape="\\"))
+        if estado is not None:
+            filters.append(Lote.estado == estado)
+        total = db.query(Lote).filter(*filters).count()
+        rows = (
+            db.query(Lote, func.count(ScanEvent.token))
+            .outerjoin(ScanEvent, ScanEvent.lote_id == Lote.id)
+            .filter(*filters)
+            .group_by(Lote.id)
+            .order_by(Lote.creado_en.desc().nullslast(), Lote.id.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+        return {
+            "items": [_serialize(lote, count) for lote, count in rows],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
 
-    return {"items": [dict(r._mapping) for r in rows]}
+
+@router.get("/{lote_id}")
+def get_lote(lote_id: int, user=Depends(get_current_user)):
+    with SessionLocal() as db:
+        lote = _by_id(db, lote_id)
+        count = db.query(ScanEvent).filter(ScanEvent.lote_id == lote.id).count()
+        return _serialize(lote, count)
+
+
+@router.put("/{lote_id}")
+def update_lote(lote_id: int, payload: UpdateLoteIn, user=Depends(get_current_user)):
+    _require_role(user, "ROOT", "GERENCIA")
+    with SessionLocal() as db:
+        lote = _by_id(db, lote_id, lock=True)
+        _set_estado(lote, payload.estado, user)
+        lote.codigo = payload.codigo
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(409, "Ya existe un lote con ese código")
+        count = db.query(ScanEvent).filter(ScanEvent.lote_id == lote.id).count()
+        return _serialize(lote, count)
+
+
+@router.delete("/{lote_id}")
+def delete_lote(lote_id: int, user=Depends(get_current_user)):
+    _require_role(user, "ROOT", "GERENCIA")
+    with SessionLocal() as db:
+        lote = _by_id(db, lote_id, lock=True)
+        codigo = lote.codigo
+        try:
+            deleted_scans = db.query(ScanEvent).filter(ScanEvent.lote_id == lote.id).delete(
+                synchronize_session=False
+            )
+            db.delete(lote)
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(409, "El lote tiene otras referencias y no se pudo eliminar")
+        return {"ok": True, "id": lote_id, "codigo": codigo, "deleted_scans": deleted_scans}
 
 
 @router.post("/{codigo}/close")
 def close_lote(codigo: str, user=Depends(get_current_user)):
-    c = _norm(codigo)
-
+    _require_role(user, "ROOT", "GERENCIA", "SUPERVISOR")
     with SessionLocal() as db:
-        r = db.execute(
-            text("SELECT id, estado FROM lotes WHERE codigo = :c"),
-            {"c": c},
-        ).fetchone()
-
-        if r is None:
+        lote = db.query(Lote).filter(Lote.codigo == _norm(codigo)).with_for_update().first()
+        if lote is None:
             raise HTTPException(404, "Lote no existe")
-
-        if r.estado == "CERRADO":
-            return {"codigo": c, "estado": "CERRADO"}
-
-        db.execute(
-            text("""
-                UPDATE lotes
-                SET estado = 'CERRADO',
-                    cerrado_en = NOW(),
-                    cerrado_por = :u
-                WHERE id = :id
-            """),
-            {"id": r.id, "u": user.get("usuario")},
-        )
+        _set_estado(lote, "CERRADO", user)
         db.commit()
-
-    return {"codigo": c, "estado": "CERRADO"}
+        return {"codigo": lote.codigo, "estado": lote.estado}
 
 
 @router.post("/{codigo}/open")
 def open_lote(codigo: str, user=Depends(get_current_user)):
-    if (user.get("rol") or "").upper() != "ROOT":
-        raise HTTPException(403, "Solo ROOT puede reabrir")
-
-    c = _norm(codigo)
-
+    _require_role(user, "ROOT")
     with SessionLocal() as db:
-        r = db.execute(
-            text("SELECT id, estado FROM lotes WHERE codigo = :c"),
-            {"c": c},
-        ).fetchone()
-
-        if r is None:
+        lote = db.query(Lote).filter(Lote.codigo == _norm(codigo)).with_for_update().first()
+        if lote is None:
             raise HTTPException(404, "Lote no existe")
-
-        if r.estado == "ABIERTO":
-            return {"codigo": c, "estado": "ABIERTO"}
-
-        db.execute(
-            text("""
-                UPDATE lotes
-                SET estado = 'ABIERTO',
-                    reabierto_en = NOW(),
-                    reabierto_por = :u
-                WHERE id = :id
-            """),
-            {"id": r.id, "u": user.get("usuario")},
-        )
+        _set_estado(lote, "ABIERTO", user)
         db.commit()
-
-    return {"codigo": c, "estado": "ABIERTO"}
+        return {"codigo": lote.codigo, "estado": lote.estado}

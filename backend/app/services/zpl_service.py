@@ -3,7 +3,7 @@ import qrcode
 from app.core.security import sign
 
 def generar_zpl_qr( token: str, dni: str, visible: str, producto: str,):
-    
+
     # --------------------------------------------------
     # Payload QR
     # --------------------------------------------------
@@ -75,7 +75,7 @@ def generar_zpl_qr_4cols(
     total_h = label_h
 
     # Coordenada de inicio del QR dentro de cada etiqueta (igual a 1-col: ^FO0,2)
-    qr_y = 15
+    qr_y = 35
 
     # Layout base (tu etiqueta que sí funciona) para mag=3:
     # QR: ^FO0,2 ^BQN,2,3
@@ -84,8 +84,8 @@ def generar_zpl_qr_4cols(
     base_mag = 3
     base_box_x = 55
     base_box_y = 71
-    base_box_w = 70
-    base_box_h = 40
+    base_box_w = 90
+    base_box_h = 90
     base_font = 30
 
     zpl = []
