@@ -10,7 +10,9 @@ El ZIP contiene una sola carpeta de proyecto con sus módulos internos (`backend
 
 ## Gestión de lotes
 
-La pestaña Lotes dispone de creación, búsqueda, paginación, edición y eliminación completa con sus lecturas asociadas. Ver [funcionalidad, permisos y pruebas del CRUD de lotes](docs/lotes-crud.md).
+La pestaña Lotes dispone de creación, búsqueda, paginación, edición y eliminación completa con sus lecturas asociadas, incluida la eliminación masiva del usuario ROOT seleccionando lotes desde la grilla. Ver [funcionalidad, permisos y pruebas del CRUD de lotes](docs/lotes-crud.md).
+
+El **Dashboard de producción** muestra cajas procesadas por día y por lote (empacadas/seleccionadas) y la eficiencia del personal en cajas por hora, con filtros por rango de fechas y lote. Ver [dashboard](docs/dashboard.md).
 
 ## Actualizar la web sin reinstalar la impresión
 

@@ -135,11 +135,55 @@ def render(
         return
 
     table = pd.DataFrame(items)
-    st.dataframe(
-        table[["id", "codigo", "estado", "total_lecturas", "creado_por", "creado_en", "cerrado_en", "reabierto_en"]],
-        hide_index=True,
-        width="stretch",
-    )
+    columns = ["id", "codigo", "estado", "total_lecturas", "creado_por", "creado_en", "cerrado_en", "reabierto_en"]
+
+    # Eliminación masiva: solo ROOT y con selección múltiple desde la grilla.
+    if role == "ROOT":
+        grid = table[columns].copy()
+        grid["🗑️ Eliminar"] = False
+        edited = st.data_editor(
+            grid[["🗑️ Eliminar", *columns]],
+            hide_index=True,
+            num_rows="fixed",
+            disabled=columns,
+            width="stretch",
+            key="lotes_grilla_masiva",
+        )
+        selected_rows = edited[edited["🗑️ Eliminar"] == True]
+        selected_ids = [int(i) for i in selected_rows["id"].tolist()]
+        selected_codes = selected_rows["codigo"].tolist()
+        selected_scans = int(selected_rows["total_lecturas"].sum()) if len(selected_rows) else 0
+
+        if selected_ids:
+            st.warning(
+                f"Seleccionados {len(selected_ids)} lote(s): {', '.join(selected_codes)} "
+                f"({selected_scans} lecturas asociadas en total)."
+            )
+            confirm = st.checkbox(
+                "Confirmo eliminar TODOS los lotes seleccionados junto con sus lecturas",
+                key="lotes_confirmar_masivo",
+            )
+            delete_many = st.button("Eliminar lotes seleccionados", type="primary", key="lotes_eliminar_masivo")
+            if delete_many:
+                if not confirm:
+                    st.warning("Marque la confirmación para eliminar los lotes seleccionados.")
+                else:
+                    result = _request(st, api_post, "/lotes/bulk-delete", json={"ids": selected_ids})
+                    if result is not None:
+                        active_code = st.session_state.get("active_lote_codigo")
+                        if active_code and active_code in {item["codigo"] for item in result["items"]}:
+                            st.session_state.active_lote_codigo = ""
+                        refresh(
+                            f"Se eliminaron {result['deleted_lotes']} lotes y {result['deleted_scans']} lecturas.",
+                            reset=True,
+                        )
+    else:
+        st.dataframe(
+            table[columns],
+            hide_index=True,
+            width="stretch",
+        )
+
     by_id = {item["id"]: item for item in items}
     if st.session_state.get("lotes_seleccion") not in (None, *by_id):
         st.session_state.pop("lotes_seleccion", None)

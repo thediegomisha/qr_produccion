@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT / "ui_web"))
 # Route imports must never load the application entrypoint or production .env.
 os.environ["DATABASE_URL"] = "sqlite://"
 
-from app.api import routes_lotes, routes_scans
+from app.api import routes_dashboard, routes_lotes, routes_scans
 from app.core.auth_dep import get_current_user
 from app.db.models import Base
 
@@ -52,6 +52,7 @@ def session_factory(engine, monkeypatch):
     factory = sessionmaker(bind=engine, autoflush=False)
     monkeypatch.setattr(routes_lotes, "SessionLocal", factory)
     monkeypatch.setattr(routes_scans, "SessionLocal", factory)
+    monkeypatch.setattr(routes_dashboard, "SessionLocal", factory)
     return factory
 
 
@@ -65,6 +66,7 @@ def app(session_factory, user):
     application = FastAPI()
     application.include_router(routes_lotes.router, prefix="/api")
     application.include_router(routes_scans.router, prefix="/api")
+    application.include_router(routes_dashboard.router, prefix="/api")
     application.dependency_overrides[get_current_user] = lambda: user
     return application
 

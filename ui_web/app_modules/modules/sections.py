@@ -6,6 +6,7 @@ from .impresion_page import render as render_impresion
 from .impresoras_page import render as render_impresoras
 from .productos_page import render as render_productos
 from .reportes_page import render as render_reportes
+from .dashboard_page import render as render_dashboard
 from .lotes_page import render as render_lotes
 from .vigilancia_page import render as render_vigilancia
 from .navigation import (
@@ -14,6 +15,7 @@ from .navigation import (
     SECTION_IMPRESORAS,
     SECTION_LISTAR,
     SECTION_LOTES,
+    SECTION_DASHBOARD,
     SECTION_REPORTES,
     SECTION_TRABAJADORES,
     SECTION_USERS,
@@ -67,6 +69,7 @@ def render_sections(
         SECTION_IMPRESION: render_impresion,
         SECTION_IMPRESORAS: render_impresoras,
         SECTION_REPORTES: render_reportes,
+        SECTION_DASHBOARD: render_dashboard,
         SECTION_LOTES: render_lotes,
         SECTION_VIGILANCIA: render_vigilancia,
     }

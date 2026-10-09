@@ -123,6 +123,27 @@ def test_delete_requires_confirmation_and_clears_active_lot(ui_api, client, sess
     assert any("1 lecturas" in message.value for message in at.success)
 
 
+def test_bulk_delete_selected_lots_from_grid_requires_confirmation(ui_api, client):
+    one = client.post("/api/lotes", json={"codigo": "MAS-1"}).json()
+    two = client.post("/api/lotes", json={"codigo": "MAS-2"}).json()
+    keep = client.post("/api/lotes", json={"codigo": "MAS-3"}).json()
+    at = AppTest.from_string(SCRIPT)
+    at.session_state["active_lote_codigo"] = "MAS-1"
+    run(at)
+
+    # The editable grid is only available for ROOT; mark two lots for deletion.
+    editor_state = {i: {"🗑️ Eliminar": (row["id"] == one["id"] or row["id"] == two["id"])} for i, row in enumerate([one, two, keep])}
+    at.session_state["lotes_grilla_masiva"] = {"edited_rows": editor_state, "added_rows": [], "deleted_rows": []}
+    run(at)
+
+    # The grid shows the selection summary and the confirmation controls
+    # (the API-level deletion behavior is covered by tests/test_lotes_api.py).
+    assert any("Seleccionados 2 lote(s)" in message.value for message in at.warning)
+    assert widget(at.checkbox, "Confirmo eliminar TODOS los lotes seleccionados junto con sus lecturas")
+    remove = widget(at.button, "Eliminar lotes seleccionados")
+    assert not remove.disabled
+
+
 def test_supervisor_can_use_lot_without_edit_or_delete_forms(ui_api, user, client):
     user["rol"] = "SUPERVISOR"
     ui_api.ROLE = "SUPERVISOR"

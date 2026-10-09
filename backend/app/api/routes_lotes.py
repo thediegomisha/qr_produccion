@@ -35,6 +35,10 @@ class UpdateLoteIn(EnsureLoteIn):
     estado: Literal["ABIERTO", "CERRADO"]
 
 
+class BulkDeleteIn(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=500)
+
+
 def _require_role(user: dict, *roles: str):
     if (user.get("rol") or "").upper() not in roles:
         raise HTTPException(403, "No tienes permisos para esta operación de lotes")
@@ -168,6 +172,39 @@ def update_lote(lote_id: int, payload: UpdateLoteIn, user=Depends(get_current_us
             raise HTTPException(409, "Ya existe un lote con ese código")
         count = db.query(ScanEvent).filter(ScanEvent.lote_id == lote.id).count()
         return _serialize(lote, count)
+
+
+@router.post("/bulk-delete")
+def bulk_delete_lotes(payload: BulkDeleteIn, user=Depends(get_current_user)):
+    _require_role(user, "ROOT")
+    ids = sorted(set(payload.ids))
+
+    with SessionLocal() as db:
+        lotes = (
+            db.query(Lote)
+            .filter(Lote.id.in_(ids))
+            .with_for_update()
+            .order_by(Lote.id)
+            .all()
+        )
+        found = {lote.id for lote in lotes}
+        missing = [i for i in ids if i not in found]
+        if missing:
+            raise HTTPException(404, f"Lotes no encontrados: {missing}")
+
+        deleted_scans = db.query(ScanEvent).filter(ScanEvent.lote_id.in_(ids)).delete(
+            synchronize_session=False
+        )
+        summary = [{"id": lote.id, "codigo": lote.codigo} for lote in lotes]
+        try:
+            for lote in lotes:
+                db.delete(lote)
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(409, "Hay lotes con otras referencias y no se pudieron eliminar")
+
+    return {"ok": True, "deleted_lotes": len(lotes), "deleted_scans": deleted_scans, "items": summary}
 
 
 @router.delete("/{lote_id}")

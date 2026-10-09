@@ -18,6 +18,7 @@ from app.api import (
     routes_reniec,
     routes_scans,
     routes_reports,
+    routes_dashboard,
     routes_lotes,
     routes_vigilancia,
     routes_productos,
@@ -37,6 +38,7 @@ app.include_router(routes_impresoras.router)
 app.include_router(routes_reniec.router)
 app.include_router(routes_scans.router)
 app.include_router(routes_reports.router)
+app.include_router(routes_dashboard.router)
 app.include_router(routes_lotes.router)
 app.include_router(routes_vigilancia.router)
 app.include_router(routes_productos.router)

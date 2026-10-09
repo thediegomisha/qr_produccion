@@ -5,6 +5,7 @@ SECTION_TRABAJADORES = "trabajadores"
 SECTION_VIGILANCIA = "vigilancia"
 SECTION_IMPRESORAS = "impresoras"
 SECTION_REPORTES = "reportes"
+SECTION_DASHBOARD = "dashboard"
 SECTION_LOTES = "lotes"
 SECTION_CONSULTAS = "consultas"
 SECTION_PRODUCTOS = "productos"
@@ -17,6 +18,7 @@ SECTION_LABELS = {
     SECTION_VIGILANCIA: "🛡️ Vigilancia",
     SECTION_IMPRESORAS: "🖨️ Impresoras",
     SECTION_REPORTES: "📊 Reportes",
+    SECTION_DASHBOARD: "📈 Dashboard",
     SECTION_LOTES: "📦 Lotes",
     SECTION_CONSULTAS: "🔎 Consultas",
     SECTION_PRODUCTOS: "🧾 Productos",
@@ -30,6 +32,7 @@ SECTION_TITLES = {
     SECTION_VIGILANCIA: "CONTROL DE VIGILANCIA",
     SECTION_IMPRESORAS: "CONFIGURACION DE IMPRESORAS",
     SECTION_REPORTES: "REPORTES",
+    SECTION_DASHBOARD: "DASHBOARD DE PRODUCCION",
     SECTION_LOTES: "GESTION DE LOTES",
     SECTION_CONSULTAS: "CONSULTA POR DNI",
     SECTION_PRODUCTOS: "MANTENIMIENTO DE PRODUCTOS",
@@ -56,6 +59,7 @@ def sections_for_role(role: str) -> list[str]:
             SECTION_VIGILANCIA,
             SECTION_IMPRESORAS,
             SECTION_REPORTES,
+            SECTION_DASHBOARD,
             SECTION_LOTES,
             SECTION_CONSULTAS,
         ]
@@ -66,6 +70,7 @@ def sections_for_role(role: str) -> list[str]:
             SECTION_TRABAJADORES,
             SECTION_IMPRESORAS,
             SECTION_REPORTES,
+            SECTION_DASHBOARD,
             SECTION_LOTES,
             SECTION_CONSULTAS,
         ]

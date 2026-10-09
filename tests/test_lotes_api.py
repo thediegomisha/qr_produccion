@@ -204,6 +204,36 @@ def test_delete_waits_for_in_flight_read_transaction(client, session_factory, en
     assert response.json()["deleted_scans"] == 1
 
 
+def test_bulk_delete_requires_root_and_removes_selected_lots_with_reads(client, session_factory, user):
+    first = create(client, "MASS-1")
+    second = create(client, "MASS-2")
+    keep = create(client, "CONSERVAR")
+    add_scan(session_factory, first["id"], "m1")
+    add_scan(session_factory, second["id"], "m2")
+    add_scan(session_factory, keep["id"], "k1")
+
+    for role in ("GERENCIA", "SUPERVISOR"):
+        user["rol"] = role
+        assert client.post("/api/lotes/bulk-delete", json={"ids": [first["id"], second["id"]]}).status_code == 403
+    user["rol"] = "ROOT"
+    assert client.post("/api/lotes/bulk-delete", json={"ids": [first["id"], 99999]}).status_code == 404
+    result = client.post("/api/lotes/bulk-delete", json={"ids": [first["id"], second["id"], first["id"]]})
+    assert result.status_code == 200
+    data = result.json()
+    assert data["deleted_lotes"] == 2
+    assert data["deleted_scans"] == 2
+    assert {i["codigo"] for i in data["items"]} == {"MASS-1", "MASS-2"}
+    with session_factory() as db:
+        assert db.query(Lote).count() == 1
+        assert db.query(ScanEvent).count() == 1
+        assert db.get(ScanEvent, "k1")
+
+
+def test_bulk_delete_rejects_empty_or_repeated_duplicates(client):
+    assert client.post("/api/lotes/bulk-delete", json={"ids": []}).status_code == 422
+    assert client.post("/api/lotes/bulk-delete", json={"ids": [1] * 501}).status_code == 422
+
+
 def test_android_batch_upload_still_works_and_closed_lots_reject_reads(client, session_factory, engine):
     if engine.dialect.name != "postgresql":
         pytest.skip("El contrato de scans utiliza JSONB de PostgreSQL")

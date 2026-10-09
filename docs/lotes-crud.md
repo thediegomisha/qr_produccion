@@ -6,7 +6,9 @@ Desarrollo en la rama `feature/crud-lotes`, basado en la versión de `main` inst
 
 La pestaña **Lotes** permite crear, buscar por código, filtrar por estado y recorrer todo el listado en páginas de 50 registros. Cada fila muestra su identificador, código, estado, cantidad de lecturas y fechas de creación/cierre/reapertura.
 
-El formulario de creación está dentro de **Crear nuevo lote**, un panel desplegable. Seleccionar un lote en **Seleccionar lote** abre un modal con su detalle y las acciones disponibles para el rol. La página principal conserva el listado y los filtros, sin desplegar los formularios de mantenimiento.
+El formulario de creación está dentro de **Crear nuevo lote**, un panel desplegable. Seleccionar un lote en **Seleccionar lote** abre un modal con su detalle y las acciones disponibles para el rol.
+
+Además, el usuario **ROOT** puede seleccionar varios lotes desde la grilla (checkbox `🗑️ Eliminar`) y eliminarlos de forma masiva con confirmación. El endpoint `POST /api/lotes/bulk-delete` elimina todo lo seleccionado (lotes y sus lecturas) en una sola transacción y devuelve el resumen de lo eliminado. La página principal conserva el listado y los filtros, sin desplegar los formularios de mantenimiento.
 
 Al guardar, eliminar, cerrar/reabrir o usar el lote activo, el modal se cierra y se actualiza el listado. Se puede salir con **Volver al listado**, la X, Escape o un clic fuera del modal. La selección se limpia para permitir abrir nuevamente el mismo lote; los cambios sin guardar se descartan.
 
