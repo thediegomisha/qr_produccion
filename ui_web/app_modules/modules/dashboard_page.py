@@ -1,3 +1,5 @@
+import os
+import time
 from datetime import date, timedelta
 
 import altair as alt
@@ -12,6 +14,20 @@ _COLOR_KPI = ["#00b3f4", "#ffb100", "#9947ff", "#58cf42", "#ff4747"]
 _MEDALS = ["🥇", "🥈", "🥉"]
 _LEADER_COLORS = ["#FFD700", "#C0C0C0", "#CD7F32"]
 _TZ = "America/Lima"
+# Intervalo del modo tablero, ajustable según la carga del servidor.
+_REFRESH_SECONDS = max(5, int(os.getenv("DASHBOARD_REFRESH_SECONDS", "30")))
+_LOTES_CACHE_TTL = 60  # el listado de lotes casi no cambia: refrescar 1 vez por minuto
+
+
+def _lotes_cacheados(st, api_get):
+    """Listado de lotes con caché por sesión para no consultarlo en cada tic."""
+    cache = st.session_state.get("_dash_lotes_cache")
+    if cache is not None and time.time() - cache[0] < _LOTES_CACHE_TTL:
+        return cache[1]
+    data = _request(st, api_get, "/lotes", {"limit": 200})
+    lotes = (data or {}).get("items", []) if data else []
+    st.session_state["_dash_lotes_cache"] = (time.time(), lotes)
+    return lotes
 
 
 def _request(st, api_get, path, params):
@@ -110,9 +126,9 @@ def render(
         st.error("No tienes permisos para ver el dashboard.")
         return
 
-    st.caption("⏱️ Actualización automática cada 30 segundos (modo tablero).")
+    st.caption(f"⏱️ Actualización automática cada {_REFRESH_SECONDS} segundos (modo tablero).")
 
-    @st.fragment(run_every="30s")
+    @st.fragment(run_every=_REFRESH_SECONDS)
     def _body():
         today = date.today()
 
@@ -141,8 +157,7 @@ def render(
         with col_f2:
             date_to = st.date_input("Hasta", value=today, key="dashboard_hasta")
         with col_f3:
-            lotes_data = _request(st, api_get, "/lotes", {"limit": 200})
-            lotes_items = (lotes_data or {}).get("items", [])
+            lotes_items = _lotes_cacheados(st, api_get)
             codigos = [item["codigo"] for item in lotes_items]
             lote_filter = st.selectbox("Lote", ["TODOS", *codigos], key="dashboard_lote")
 

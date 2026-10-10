@@ -18,7 +18,7 @@ El diseño sigue el modelo de tableros estilo Plecto (números grandes en tarjet
 8. **Actividad reciente** — últimas 10 lecturas en vivo (hora local, persona, lote, tipo).
 9. **Cajas por día (vista secundaria)** — dentro de un panel desplegable al final; distribución diaria de empacadas/seleccionadas para revisión puntual.
 
-El tablero se **actualiza automáticamente cada 30 segundos** (modo tablero de TV estilo Plecto).
+El tablero se **actualiza automáticamente cada 30 segundos** (modo tablero de TV estilo Plecto). El intervalo es configurable con `DASHBOARD_REFRESH_SECONDS`; el listado de lotes se cachea un minuto por sesión para reducir el tráfico al servidor en cada tic.
 
 Endpoints (requieren token con rol ROOT, GERENCIA o SUPERVISOR):
 
