@@ -1,5 +1,6 @@
 import pandas as pd
 import requests
+from app_modules.modules.export_utils import export_row
 def render(
     st,
     tabs,
@@ -37,6 +38,14 @@ def render(
                 st.dataframe(df, width="stretch")
             else:
                 st.dataframe(df[cols], width="stretch")
+                export_row(
+                    st,
+                    "Listado de trabajadores activos",
+                    [f"Total: {len(trabajadores)}"],
+                    df[cols],
+                    "trabajadores",
+                    "listar_export",
+                )
         else:
             st.info("No hay trabajadores registrados")
     else:

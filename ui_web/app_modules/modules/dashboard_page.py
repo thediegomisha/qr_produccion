@@ -1,6 +1,7 @@
 import os
+import io
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import altair as alt
 import pandas as pd
@@ -34,6 +35,9 @@ def _request(st, api_get, path, params):
         st.error("Respuesta inesperada de la API.")
         return None
     return data
+
+
+from app_modules.modules.export_utils import get_user
 
 
 def _lotes_cacheados(st, api_get):
@@ -365,18 +369,18 @@ def render(
         top["empacadas_por_hora"] = (top["empacadas"] / top["horas_activas"]).round(1)
         st.markdown(_leaderboard_html(top), unsafe_allow_html=True)
 
-        st.markdown("#### Empacadas por hora")
-        chart_rate = (
+        st.markdown("#### Cajas empacadas por persona")
+        chart_cajas = (
             alt.Chart(top)
-            .mark_line(point=True, color=_COLOR_EMPACADAS)
+            .mark_bar(color=_COLOR_EMPACADAS)
             .encode(
-                x=alt.X("persona:N", sort="-y", title="Trabajador"),
-                y=alt.Y("empacadas_por_hora:Q", title="Empacadas/hora"),
-                tooltip=["persona:N", "empacadas_por_hora:Q", "horas_activas:Q", "empacadas:Q"],
+                x=alt.X("persona:N", sort="-y", title="Trabajador", axis=alt.Axis(labelAngle=-30)),
+                y=alt.Y("empacadas:Q", title="Cajas empacadas"),
+                tooltip=["persona:N", "empacadas:Q", "seleccionadas:Q", "total_cajas:Q"],
             )
             .properties(height=300)
         )
-        st.altair_chart(chart_rate, width="stretch")
+        st.altair_chart(chart_cajas, width="stretch")
 
         st.dataframe(
             top[[
@@ -386,6 +390,48 @@ def render(
             hide_index=True,
             width="stretch",
         )
+
+        # ---------- 5. Exportar dashboard ----------
+        st.divider()
+        st.markdown("### Exportar dashboard")
+        user = get_user(st)
+        sub = [
+            f"Rango: {date_from.strftime('%d/%m/%Y')} al {date_to.strftime('%d/%m/%Y')}",
+            f"Lote: {lote_filter}",
+            f"Cajas empacadas: {emp} | Selección: {sel} | Lecturas totales: {total}",
+        ]
+        from app_modules.modules.export_utils import excel_bytes, print_button, printable_html
+        import json as _json
+
+        c_excel, c_print = st.columns(2)
+        with c_excel:
+            # Excel con dos hojas de datos: por lote y por persona.
+            buf = io.BytesIO()
+            with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+                info = pd.DataFrame({"Detalle": ["Dashboard de producción"] + sub + ["", f"Generado por: {user} — {datetime.now().strftime('%d/%m/%Y %H:%M')}"]})
+                info.to_excel(writer, sheet_name="Resumen", index=False, header=False)
+                per_lot_export = per_lot[["lote", "empacadas", "seleccionadas", "total"]].sort_values("empacadas", ascending=False)
+                per_lot_export.to_excel(writer, sheet_name="Por lote", index=False)
+                if not df_eff.empty:
+                    top_export = top[["dni", "persona", "rol_trabajador", "empacadas", "seleccionadas", "total_cajas", "dias_trabajados", "horas_activas", "cajas_por_hora"]]
+                    top_export.to_excel(writer, sheet_name="Por persona", index=False)
+            st.download_button(
+                "⬇️ Exportar a Excel",
+                data=buf.getvalue(),
+                file_name=f"dashboard_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="dash_excel",
+            )
+        with c_print:
+            tables = [("Cajas empacadas por lote", per_lot[["lote", "empacadas", "seleccionadas", "total"]].sort_values("empacadas", ascending=False))]
+            if not df_eff.empty:
+                tables.append(("Eficiencia del personal", top[["persona", "rol_trabajador", "empacadas", "seleccionadas", "total_cajas", "cajas_por_hora"]]))
+            if not df_horas.empty:
+                tables.append(("Ritmo por hora", df_horas[["hora", "empacadas", "seleccionadas", "total"]]))
+            print_button(
+                printable_html("Dashboard de producción", sub, tables, user),
+                "Dash", st,
+            )
 
         # ---------- 5. Actividad reciente ----------
         st.divider()

@@ -4,6 +4,8 @@ from urllib.parse import quote
 import pandas as pd
 from requests import RequestException
 
+from app_modules.modules.export_utils import export_row
+
 
 def _request(st, api_method, path, **kwargs):
     try:
@@ -197,6 +199,17 @@ def render(
         on_change=select_lote,
     )
     st.caption("Seleccione un lote para abrir sus detalles y acciones en una ventana modal.")
+
+    # Exportación del listado de lotes visible.
+    if items:
+        export_row(
+            st,
+            "Listado de lotes",
+            [f"Filtro: {search or 'todos'} | Estado: {state} | Total: {total}"],
+            table[["id", "codigo", "estado", "total_lecturas", "creado_por", "creado_en", "cerrado_en"]],
+            "lotes",
+            "lotes_export",
+        )
 
     def render_lote_details(lote_id):
         if st.button("Volver al listado", key="lotes_modal_volver"):

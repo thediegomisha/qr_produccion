@@ -1,4 +1,5 @@
 import pandas as pd
+from app_modules.modules.export_utils import export_row
 
 
 def render(
@@ -44,6 +45,15 @@ def render(
             df_ui["creado_en"] = "-"
         else:
             df_ui["creado_en"] = df_ui["creado_en"].map(lambda v: v if pd.notna(v) else "-")
+
+        export_row(
+            st,
+            "Listado de productos",
+            [f"Total: {len(df)}"],
+            df_ui[["id", "nombre", "activo", "creado_en"]],
+            "productos",
+            "productos_export",
+        )
 
         df_ui["✏️"] = False
         cols_show = ["✏️", "id", "nombre", "activo", "creado_en"]

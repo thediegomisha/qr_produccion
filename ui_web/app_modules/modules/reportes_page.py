@@ -6,6 +6,8 @@ import pandas as pd
 import requests
 import streamlit as _streamlit
 
+from app_modules.modules.export_utils import get_user
+
 _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 _MODO_LOTE = "Lote"
 _MODO_FECHAS = "Rango de fechas"
@@ -34,7 +36,7 @@ def _exportar_excel(st, contenedor, sub, df, prefix, identificador, key):
     )
 
 
-def _report_subtitle(filtro: str, extra: str, producto: str) -> list[str]:
+def _report_subtitle(filtro: str, extra: str, producto: str, user: str = "") -> list[str]:
     generado = datetime.now().strftime("%d/%m/%Y %H:%M")
     lineas = [
         "Sistema de Etiquetas QR — Reporte de producción",
@@ -44,7 +46,9 @@ def _report_subtitle(filtro: str, extra: str, producto: str) -> list[str]:
         lineas.append(f"Producto: {producto}")
     if extra:
         lineas.append(extra)
-    lineas.append(f"Generado: {generado}")
+    if user:
+        lineas.append(f"Generado por: {user}")
+    lineas.append(f"Fecha: {generado}")
     return lineas
 
 
@@ -277,7 +281,7 @@ def render(
             x1, x2 = st.columns(2)
             with x1:
                 sub = _report_subtitle(st.session_state.get("rep_dni_filtro") or filtro_label,
-                                       "", dni_data.get("producto") or "")
+                                       "", dni_data.get("producto") or "", get_user(st))
                 _exportar_excel(st, x1, sub, df_dni, "reporte_dni",
                                 st.session_state.get("rep_dni_filtro") or "global", "rep_dni_excel")
             with x2:
@@ -307,7 +311,7 @@ def render(
             with y1:
                 sub = _report_subtitle(st.session_state.get("rep_op_filtro") or filtro_label,
                                        "Resumen por operador (usuario que escaneó)",
-                                       op_data.get("producto") or "")
+                                       op_data.get("producto") or "", get_user(st))
                 _exportar_excel(st, y1, sub, df_op, "reporte_operadores",
                                 st.session_state.get("rep_op_filtro") or "global", "rep_op_excel")
             with y2:

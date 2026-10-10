@@ -108,7 +108,8 @@ def test_dashboard_is_lote_first_with_plecto_style_kpis(ui_api, client, session_
     assert "Distribución" in joined
     assert "Ritmo por hora del día" in joined
     assert "Actividad reciente" in joined
-    assert "Empacadas por hora" in joined
+    assert "Cajas empacadas por persona" in joined
+    assert "Exportar dashboard" in joined
     # Secciones eliminadas por solicitud: tendencia, heatmap y vista por día.
     assert "Tendencia" not in joined
     assert "persona y lote" not in joined

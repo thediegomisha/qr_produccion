@@ -1,3 +1,7 @@
+import pandas as pd
+from app_modules.modules.export_utils import export_row
+
+
 def render(
     st,
     tabs,
@@ -106,3 +110,21 @@ def render(
                 "fecha_nacimiento": st.session_state.get("consulta_fecha_nac"),
             }
         )
+
+    # Exportación con trazabilidad del usuario que consultó.
+    df_consulta = pd.DataFrame([{
+        "DNI": st.session_state.consulta_last_dni,
+        "Nombres": st.session_state.get("consulta_nombre", ""),
+        "Apellido paterno": st.session_state.get("consulta_ap_pat", ""),
+        "Apellido materno": st.session_state.get("consulta_ap_mat", ""),
+        "Fecha de nacimiento": st.session_state.get("consulta_fecha_nac") or "(No disponible)",
+    }])
+    st.divider()
+    export_row(
+        st,
+        f"Consulta DNI: {st.session_state.consulta_last_dni}",
+        ["Fuente: RENIEC/ApiPeru (modo lectura)"],
+        df_consulta,
+        f"consulta_dni_{st.session_state.consulta_last_dni}",
+        "consulta_export",
+    )

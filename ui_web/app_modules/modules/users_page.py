@@ -1,4 +1,5 @@
 import pandas as pd
+from app_modules.modules.export_utils import export_row
 def render(
     st,
     tabs,
@@ -47,6 +48,15 @@ def render(
                 df_ui["creado_en"] = "-"
             else:
                 df_ui["creado_en"] = df_ui["creado_en"].map(lambda v: v if pd.notna(v) else "-")
+
+            export_row(
+                st,
+                "Listado de usuarios del sistema",
+                [f"Total: {len(users)}"],
+                df_ui[["usuario", "nombre", "rol", "activo", "creado_en"]],
+                "usuarios",
+                "usuarios_export",
+            )
 
             # checkbox editor
             df_ui["✏️"] = False

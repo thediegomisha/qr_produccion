@@ -35,7 +35,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent  # carpeta ui_web/
 ASSETS_DIR = BASE_DIR / "assets"
 
 API = os.getenv("API_URL", "http://127.0.0.1:8000/api")
-APP_VERSION = os.getenv("APP_VERSION", "v1.0.0")
+APP_VERSION = os.getenv("APP_VERSION", "v1.1.0")
 REMEMBER_LOGIN = os.getenv("REMEMBER_LOGIN", "1").strip().lower() not in ("0", "false", "no")
 REMEMBER_LOGIN_PERSISTENT = os.getenv("REMEMBER_LOGIN_PERSISTENT", "0").strip().lower() in ("1", "true", "yes")
 REFRESH_FALLBACK_ENABLED = os.getenv("REFRESH_FALLBACK_ENABLED", "0").strip().lower() in ("1", "true", "yes")
