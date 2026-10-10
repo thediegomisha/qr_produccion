@@ -138,8 +138,9 @@ def render(
             ("7 días", today - timedelta(days=6), today),
             ("30 días", today - timedelta(days=29), today),
             ("90 días", today - timedelta(days=89), today),
+            ("1 año", today - timedelta(days=364), today),
         ]
-        preset_columns = st.columns(4)
+        preset_columns = st.columns(5)
         for (label, preset_from, preset_to), column in zip(presets, preset_columns):
             if column.button(label, key=f"dash_preset_{label}", width="stretch"):
                 st.session_state["_dash_pending_range"] = (preset_from, preset_to)
