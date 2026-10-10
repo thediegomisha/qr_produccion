@@ -1,19 +1,21 @@
 import io
 import json
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 import requests
 import streamlit.components.v1 as components
 
 _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_MODO_LOTE = "Lote"
+_MODO_FECHAS = "Rango de fechas"
 
 
-def _report_subtitle(lote: str, extra: str, producto: str) -> list[str]:
+def _report_subtitle(filtro: str, extra: str, producto: str) -> list[str]:
     generado = datetime.now().strftime("%d/%m/%Y %H:%M")
     lineas = [
         "Sistema de Etiquetas QR — Reporte de producción",
-        f"Lote: {lote or '-'}",
+        filtro,
     ]
     if producto:
         lineas.append(f"Producto: {producto}")
@@ -91,10 +93,10 @@ def _print_button(html_doc: str, key_suffix: str, height: int = 44):
     components.html(script, height=height)
 
 
-def _safe_filename(prefix: str, lote: str) -> str:
-    lote_limpio = "".join(c if c.isalnum() or c in "-_" else "_" for c in (lote or "global"))
+def _safe_filename(prefix: str, identificador: str) -> str:
+    limpio = "".join(c if c.isalnum() or c in "-_" else "_" for c in (identificador or "global"))
     fecha = datetime.now().strftime("%Y%m%d_%H%M")
-    return f"{prefix}_{lote_limpio}_{fecha}.xlsx"
+    return f"{prefix}_{limpio}_{fecha}.xlsx"
 
 
 def render(
@@ -115,57 +117,86 @@ def render(
     COLUMNAS_LISTADO,
     COLUMNAS_IMPRESION,
 ):
-    st.subheader("Reportes por DNI (por lote)")
+    st.subheader("Reportes de producción")
 
     jwt = get_jwt()
     rol_rep = (st.session_state.auth.get("rol") or "").upper()
     headers = {"Authorization": f"Bearer {jwt}"} if jwt else {}
 
-    # ---- traer lotes para el combobox ----
-    lotes_items = []
-    try:
-        r_lotes = api_get("/lotes", params={"limit": 200})
-        if r_lotes.status_code == 200:
-            lotes_items = (r_lotes.json() or {}).get("items", []) or []
+    # ---- modo de búsqueda: por lote o por rango de fechas ----
+    modo = st.radio(
+        "Buscar por",
+        [_MODO_LOTE, _MODO_FECHAS],
+        horizontal=True,
+        key="rep_modo",
+        help="Sin el día exacto, busque por rango de fechas; con un lote conocido, búsquelo directo.",
+    )
+
+    filtro_label = ""
+    params: dict = {}
+
+    if modo == _MODO_LOTE:
+        # ---- traer lotes para el combobox ----
+        lotes_items = []
+        try:
+            r_lotes = api_get("/lotes", params={"limit": 200})
+            if r_lotes.status_code == 200:
+                lotes_items = (r_lotes.json() or {}).get("items", []) or []
+            else:
+                st.warning(f"No se pudo cargar lotes ({r_lotes.status_code})")
+        except Exception as e:
+            st.warning(f"Error cargando lotes: {e}")
+
+        opciones = []
+        codigo_por_label = {}
+        for it in lotes_items:
+            c = (it.get("codigo") or "").strip().upper()
+            e = (it.get("estado") or "ABIERTO").strip().upper()
+            if not c:
+                continue
+            label = f"{c} [{e}]"
+            opciones.append(label)
+            codigo_por_label[label] = c
+
+        colA, colB = st.columns([1.3, 2])
+        with colA:
+            if not opciones:
+                st.warning("No hay lotes para seleccionar. Cambie a 'Rango de fechas' o cree uno en 📦 Lotes.")
+                selected_label = None
+            else:
+                selected_label = st.selectbox("Selecciona lote", opciones, index=0, key="rep_lote_select")
+        with colB:
+            st.caption("El reporte se filtra solo por el lote seleccionado.")
+
+        lote_codigo = ""
+        if selected_label:
+            lote_codigo = (codigo_por_label.get(selected_label) or "").strip().upper()
+        params["lote_codigo"] = lote_codigo
+        filtro_label = f"Lote: {lote_codigo or '-'}"
+        valido = bool(lote_codigo)
+
+    else:  # _MODO_FECHAS
+        today = date.today()
+        cf1, cf2, cf3 = st.columns(3)
+        with cf1:
+            rep_desde = st.date_input("Desde", value=today - timedelta(days=7), key="rep_desde")
+        with cf2:
+            rep_hasta = st.date_input("Hasta", value=today, key="rep_hasta")
+        with cf3:
+            st.caption("Rango en hora Perú. Aplica a todos los lotes.")
+
+        if rep_hasta < rep_desde:
+            st.warning("La fecha final debe ser mayor o igual a la inicial.")
+            valido = False
         else:
-            st.warning(f"No se pudo cargar lotes ({r_lotes.status_code})")
-    except Exception as e:
-        st.warning(f"Error cargando lotes: {e}")
+            valido = True
+        params["date_from"] = rep_desde.isoformat()
+        params["date_to"] = rep_hasta.isoformat()
+        filtro_label = (
+            f"Fechas: {rep_desde.strftime('%d/%m/%Y')} al {rep_hasta.strftime('%d/%m/%Y')}"
+        )
 
-    # ---- opciones selectbox ----
-    opciones = []
-    codigo_por_label = {}
-    for it in lotes_items:
-        c = (it.get("codigo") or "").strip().upper()
-        e = (it.get("estado") or "ABIERTO").strip().upper()
-        if not c:
-            continue
-        label = f"{c} [{e}]"
-        opciones.append(label)
-        codigo_por_label[label] = c
-
-    # ---- UI selección lote ----
-    colA, colB = st.columns([1.3, 2])
-    with colA:
-        if not opciones:
-            st.warning("No hay lotes para seleccionar. Cree uno en la pestaña 📦 Lotes.")
-            selected_label = None
-        else:
-            selected_label = st.selectbox(
-                "Selecciona lote",
-                opciones,
-                index=0,
-                key="rep_lote_select",
-            )
-
-    with colB:
-        st.caption("Reportes ahora se generan SIN fecha. Se filtra solo por lote y filtros opcionales.")
-
-    lote_codigo = ""
-    if selected_label:
-        lote_codigo = (codigo_por_label.get(selected_label) or "").strip().upper()
-
-    # ---- filtros opcionales ----
+    # ---- filtros opcionales (comunes a ambos modos) ----
     c1, c2 = st.columns([1, 1])
     with c1:
         producto = st.text_input("Producto (opcional)", value="", key="rep_producto")
@@ -174,48 +205,31 @@ def render(
         if rol_rep in ("ROOT", "SUPERVISOR"):
             scanned_by = st.text_input("Usuario que escaneó (opcional)", value="", key="rep_scanned_by")
 
-    # ---- params al backend (SIN fechas) ----
-    params = {"lote_codigo": lote_codigo}
     if producto.strip():
         params["producto"] = producto.strip()
     if rol_rep in ("ROOT", "SUPERVISOR") and scanned_by.strip():
         params["scanned_by"] = scanned_by.strip()
 
-    btn_disabled = not bool(lote_codigo)
-
+    # ---- botones: Consultar (principal) y reporte de operadores ----
     b1, b2 = st.columns(2)
 
-    # -------------------------
-    # DNI SUMMARY
-    # -------------------------
-    if b1.button("Generar reporte DNI", type="primary", disabled=btn_disabled):
-        r = requests.get(
-            f"{API}/reports/dni-summary",
-            params=params,
-            headers=headers,
-            timeout=20
-        )
+    if b1.button("🔍 Consultar", type="primary", disabled=not valido):
+        r = requests.get(f"{API}/reports/dni-summary", params=params, headers=headers, timeout=20)
         if r.status_code != 200:
             st.error("Error en /reports/dni-summary")
             st.code(r.text)
         else:
             st.session_state["rep_dni_data"] = r.json()
+            st.session_state["rep_dni_filtro"] = filtro_label
 
-    # -------------------------
-    # OPERATOR SUMMARY (opcional)
-    # -------------------------
-    if b2.button("Generar reporte Operadores", disabled=btn_disabled):
-        r = requests.get(
-            f"{API}/reports/operator-summary",
-            params=params,
-            headers=headers,
-            timeout=20
-        )
+    if b2.button("📋 Reporte de operadores", disabled=not valido):
+        r = requests.get(f"{API}/reports/operator-summary", params=params, headers=headers, timeout=20)
         if r.status_code != 200:
             st.error("Error en /reports/operator-summary")
             st.code(r.text)
         else:
             st.session_state["rep_op_data"] = r.json()
+            st.session_state["rep_op_filtro"] = filtro_label
 
     st.divider()
 
@@ -224,8 +238,7 @@ def render(
     if dni_data:
         st.markdown("### Reporte por DNI")
         tot = dni_data.get("totals", {}) or {}
-        lote_dni = dni_data.get("lote_codigo") or lote_codigo
-        st.caption(f"Lote: {lote_dni}")
+        st.caption(st.session_state.get("rep_dni_filtro") or filtro_label)
 
         m1, m2, m3 = st.columns(3)
         m1.metric("Total lecturas", int(tot.get("total_lecturas", 0)))
@@ -234,17 +247,18 @@ def render(
 
         df_dni = pd.DataFrame(dni_data.get("rows", []))
         if df_dni.empty:
-            st.info("Sin datos para el reporte por DNI.")
+            st.info("Sin datos para el filtro seleccionado.")
         else:
             st.dataframe(df_dni, width="stretch")
 
             x1, x2 = st.columns(2)
             with x1:
-                sub = _report_subtitle(lote_dni, "", dni_data.get("producto") or "")
+                sub = _report_subtitle(st.session_state.get("rep_dni_filtro") or filtro_label,
+                                       "", dni_data.get("producto") or "")
                 st.download_button(
                     "⬇️ Exportar a Excel",
                     data=_excel_bytes(sub, df_dni),
-                    file_name=_safe_filename("reporte_dni", lote_dni),
+                    file_name=_safe_filename("reporte_dni", st.session_state.get("rep_dni_filtro") or "global"),
                     mime=_XLSX_MIME,
                     key="rep_dni_excel",
                 )
@@ -263,22 +277,23 @@ def render(
     op_data = st.session_state.get("rep_op_data")
     if op_data:
         st.markdown("### Reporte por operadores")
-        lote_op = op_data.get("lote_codigo") or lote_codigo
-        st.caption(f"Lote: {lote_op}")
+        st.caption(st.session_state.get("rep_op_filtro") or filtro_label)
 
         df_op = pd.DataFrame(op_data.get("rows", []))
         if df_op.empty:
-            st.info("Sin datos para el reporte por operadores.")
+            st.info("Sin datos para el filtro seleccionado.")
         else:
             st.dataframe(df_op, width="stretch")
 
             y1, y2 = st.columns(2)
             with y1:
-                sub = _report_subtitle(lote_op, "Resumen por operador (usuario que escaneó)", op_data.get("producto") or "")
+                sub = _report_subtitle(st.session_state.get("rep_op_filtro") or filtro_label,
+                                       "Resumen por operador (usuario que escaneó)",
+                                       op_data.get("producto") or "")
                 st.download_button(
                     "⬇️ Exportar a Excel",
                     data=_excel_bytes(sub, df_op),
-                    file_name=_safe_filename("reporte_operadores", lote_op),
+                    file_name=_safe_filename("reporte_operadores", st.session_state.get("rep_op_filtro") or "global"),
                     mime=_XLSX_MIME,
                     key="rep_op_excel",
                 )

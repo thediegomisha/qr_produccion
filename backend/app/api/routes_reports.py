@@ -8,6 +8,30 @@ from app.core.auth_dep import get_current_user
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
+# Los días se evalúan en hora local de la operación (Perú), igual que el dashboard.
+_TIMEZONE = "America/Lima"
+
+
+def _clean_date(value: Optional[str]) -> Optional[str]:
+    value = _clean_optional(value)
+    if not value:
+        return None
+    try:
+        datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(400, f"Fecha inválida (use AAAA-MM-DD): {value}")
+    return value
+
+
+def _date_pair(date_from: Optional[str], date_to: Optional[str]):
+    date_from = _clean_date(date_from)
+    date_to = _clean_date(date_to)
+    if (date_from is None) != (date_to is None):
+        raise HTTPException(400, "Indique ambas fechas (date_from y date_to) o ninguna")
+    if date_from and date_to and date_to < date_from:
+        raise HTTPException(400, "La fecha final debe ser mayor o igual a la inicial")
+    return date_from, date_to
+
 
 # -------------------------
 # Helpers
@@ -87,11 +111,19 @@ def dni_summary(
     producto: Optional[str] = Query(None, description="Ej: UVA"),
     scanned_by: Optional[str] = Query(None, description="user_id que escaneó (solo ROOT/SUPERVISOR)"),
     lote_codigo: Optional[str] = Query(None, description="Código de lote, ej: 1234-2026"),
+    date_from: Optional[str] = Query(None, description="AAAA-MM-DD (hora Perú)"),
+    date_to: Optional[str] = Query(None, description="AAAA-MM-DD (hora Perú)"),
     user=Depends(get_current_user),
 ):
     producto = _clean_optional(producto)
     scanned_by_eff = _effective_user_filter(user, scanned_by)
     lote_codigo = _clean_optional(lote_codigo)
+    date_from, date_to = _date_pair(date_from, date_to)
+
+    date_filter = """
+      AND (CAST(:date_from AS date) IS NULL OR se.scanned_at >= (CAST(:date_from AS date))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
+      AND (CAST(:date_to AS date) IS NULL OR se.scanned_at < ((CAST(:date_to AS date) + 1))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
+    """
 
     totals_sql = text("""
     SELECT
@@ -105,6 +137,7 @@ def dni_summary(
       AND (:producto IS NULL OR se.raw->>'p' = :producto)
       AND (:scanned_by IS NULL OR se.user_id = :scanned_by)
       AND (:lote_id IS NULL OR se.lote_id = :lote_id)
+    """ + date_filter + """
     ;
     """)
 
@@ -135,6 +168,7 @@ def dni_summary(
       AND (:producto IS NULL OR se.raw->>'p' = :producto)
       AND (:scanned_by IS NULL OR se.user_id = :scanned_by)
       AND (:lote_id IS NULL OR se.lote_id = :lote_id)
+    """ + date_filter + """
     GROUP BY se.dni, persona
     ORDER BY total DESC;
     """)
@@ -146,6 +180,9 @@ def dni_summary(
             "producto": producto,
             "scanned_by": scanned_by_eff,
             "lote_id": lote_id,
+            "date_from": date_from,
+            "date_to": date_to,
+            "tz": _TIMEZONE,
         }
 
         totals = db.execute(totals_sql, params).mappings().first() or {}
@@ -155,6 +192,8 @@ def dni_summary(
         "producto": producto,
         "scanned_by": scanned_by_eff,
         "lote_codigo": lote_codigo,
+        "date_from": date_from,
+        "date_to": date_to,
         "totals": dict(totals),
         "rows": [dict(r) for r in rows],
     }
@@ -169,11 +208,14 @@ def operator_summary(
     producto: Optional[str] = Query(None),
     scanned_by: Optional[str] = Query(None),
     lote_codigo: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None, description="AAAA-MM-DD (hora Perú)"),
+    date_to: Optional[str] = Query(None, description="AAAA-MM-DD (hora Perú)"),
     user=Depends(get_current_user),
 ):
     producto = _clean_optional(producto)
     scanned_by_eff = _effective_user_filter(user, scanned_by)
     lote_codigo = _clean_optional(lote_codigo)
+    date_from, date_to = _date_pair(date_from, date_to)
 
     sql = text("""
     SELECT
@@ -186,6 +228,8 @@ def operator_summary(
     WHERE (:producto IS NULL OR se.raw->>'p' = :producto)
       AND (:scanned_by IS NULL OR se.user_id = :scanned_by)
       AND (:lote_id IS NULL OR se.lote_id = :lote_id)
+      AND (CAST(:date_from AS date) IS NULL OR se.scanned_at >= (CAST(:date_from AS date))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
+      AND (CAST(:date_to AS date) IS NULL OR se.scanned_at < ((CAST(:date_to AS date) + 1))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
     GROUP BY se.user_id
     ORDER BY total DESC, ultima_lectura DESC;
     """)
@@ -196,12 +240,17 @@ def operator_summary(
             "producto": producto,
             "scanned_by": scanned_by_eff,
             "lote_id": lote_id,
+            "date_from": date_from,
+            "date_to": date_to,
+            "tz": _TIMEZONE,
         }).mappings().all()
 
     return {
         "producto": producto,
         "scanned_by": scanned_by_eff,
         "lote_codigo": lote_codigo,
+        "date_from": date_from,
+        "date_to": date_to,
         "rows": [dict(r) for r in rows],
     }
 

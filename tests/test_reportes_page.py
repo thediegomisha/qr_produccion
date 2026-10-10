@@ -1,6 +1,7 @@
 import io
 import sys
 from types import ModuleType
+from datetime import date
 
 import pandas as pd
 import pytest
@@ -44,7 +45,7 @@ def _sample_df():
 
 
 def test_excel_bytes_generates_valid_xlsx_with_header_and_rows():
-    sub = _report_subtitle("LOTE-1", "", "PALTA")
+    sub = _report_subtitle("Lote: LOTE-1", "", "PALTA")
     data = _excel_bytes(sub, _sample_df())
     assert data[:2] == b"PK"  # firma ZIP/XLSX
     from openpyxl import load_workbook
@@ -59,8 +60,22 @@ def test_excel_bytes_generates_valid_xlsx_with_header_and_rows():
     assert sheet["A8"].value == "11111111"
 
 
+def test_excel_and_print_accept_date_range_filters():
+    filtro = "Fechas: 02/10/2026 al 09/10/2026"
+    sub = _report_subtitle(filtro, "", "")
+    data = _excel_bytes(sub, _sample_df())
+    from openpyxl import load_workbook
+    sheet = load_workbook(io.BytesIO(data))["Reporte"]
+    assert sheet["A2"].value == filtro
+
+    html = _printable_html("Reporte de producción por DNI", sub,
+                           [("Total lecturas", 20)], _sample_df())
+    assert "Fechas: 02/10/2026 al 09/10/2026" in html
+    assert "PEREZ RUIZ ANA" in html
+
+
 def test_printable_html_contains_title_totals_and_table():
-    sub = _report_subtitle("LOTE-1", "", "")
+    sub = _report_subtitle("Lote: LOTE-1", "", "")
     html = _printable_html("Reporte de producción por DNI", sub,
                            [("Total lecturas", 20)], _sample_df())
     assert html.startswith("<!DOCTYPE html>")
@@ -73,11 +88,11 @@ def test_printable_html_contains_title_totals_and_table():
     assert html.rstrip().endswith("</html>")
 
 
-def test_safe_filename_sanitizes_lote_codes():
-    assert "/" not in _safe_filename("reporte_dni", "LO/TE 1-2")
-    assert "\\" not in _safe_filename("reporte_dni", "LO\\TE")
-    assert _safe_filename("reporte_dni", "ABC").startswith("reporte_dni_ABC")
-    assert _safe_filename("reporte_dni", "ABC").endswith(".xlsx")
+def test_safe_filename_sanitizes_filters():
+    assert "/" not in _safe_filename("reporte_dni", "Lote: LO/TE 1-2")
+    assert "\\" not in _safe_filename("reporte_dni", "Fechas: \\x")
+    assert _safe_filename("reporte_dni", "LOTE-9").startswith("reporte_dni_LOTE-9")
+    assert _safe_filename("reporte_dni", "LOTE-9").endswith(".xlsx")
 
 
 # -------------------------
@@ -106,13 +121,17 @@ class _FakeResponse:
 
 def _patch_reports(monkeypatch, payload):
     import app_modules.modules.reportes_page as page
-    monkeypatch.setattr(
-        page.requests, "get",
-        lambda url, **kwargs: _FakeResponse(payload),
-    )
+    captured = []
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        captured.append({"url": url, "params": dict(params or {})})
+        return _FakeResponse(payload)
+
+    monkeypatch.setattr(page.requests, "get", fake_get)
+    return captured
 
 
-def test_dni_report_renders_and_offers_excel_and_print(ui_api, client, monkeypatch):
+def test_consultar_by_lote_sends_lote_param_and_persists(ui_api, client, monkeypatch):
     client.post("/api/lotes", json={"codigo": "REP-1"})
     payload = {
         "producto": None, "lote_codigo": "REP-1",
@@ -120,49 +139,101 @@ def test_dni_report_renders_and_offers_excel_and_print(ui_api, client, monkeypat
         "rows": [{"dni": "11111111", "persona": "PEREZ RUIZ ANA",
                   "empacador": 12, "seleccionador": 0, "total": 12}],
     }
-    _patch_reports(monkeypatch, payload)
+    captured = _patch_reports(monkeypatch, payload)
 
     at = AppTest.from_string(SCRIPT).run(timeout=20)
     assert not at.exception
-    next(b for b in at.button if b.label == "Generar reporte DNI").click()
+    # Modo por defecto: Lote.
+    assert at.radio[0].value == "Lote"
+    next(b for b in at.button if b.label == "🔍 Consultar").click()
     at = at.run(timeout=20)
     assert not at.exception
 
-    # El reporte queda persistido y visible junto a las acciones de exportación
-    # (download_button no es capturado por AppTest; su generación es _excel_bytes,
-    # cubierta por las pruebas unitarias — si fallara, la página lanzaría excepción).
+    assert captured[-1]["params"]["lote_codigo"] == "REP-1"
     assert at.session_state["rep_dni_data"]["totals"]["total_lecturas"] == 20
+    assert at.session_state["rep_dni_filtro"] == "Lote: REP-1"
     assert any("Reporte por DNI" in m.value for m in at.markdown)
     assert len(at.dataframe) >= 1
 
     # Una segunda re-ejecución (p. ej. al descargar) conserva el reporte.
     at = at.run(timeout=20)
     assert at.session_state["rep_dni_data"] is not None
-    assert any("Reporte por DNI" in m.value for m in at.markdown)
 
 
-def test_operators_report_renders_and_offers_excel(ui_api, client, monkeypatch):
-    client.post("/api/lotes", json={"codigo": "REP-2"})
+def test_consultar_by_date_range_sends_dates_without_lote(ui_api, client, monkeypatch):
+    client.post("/api/lotes", json={"codigo": "REP-F"})
     payload = {
-        "producto": None, "lote_codigo": "REP-2", "rows": [
+        "producto": None, "lote_codigo": None,
+        "date_from": "2026-10-02", "date_to": "2026-10-09",
+        "totals": {"total_lecturas": 5, "emp_lecturas": 3, "sel_lecturas": 2},
+        "rows": [{"dni": "33333333", "persona": "QUISPE MARIA",
+                  "empacador": 3, "seleccionador": 2, "total": 5}],
+    }
+    captured = _patch_reports(monkeypatch, payload)
+
+    at = AppTest.from_string(SCRIPT).run(timeout=20)
+    assert not at.exception
+    # Cambiar a modo fechas y fijar el rango.
+    at.radio[0].set_value("Rango de fechas")
+    at = at.run(timeout=20)
+    assert not at.exception
+    at.date_input(key="rep_desde").set_value(date(2026, 10, 2))
+    at.date_input(key="rep_hasta").set_value(date(2026, 10, 9))
+    at = at.run(timeout=20)
+    next(b for b in at.button if b.label == "🔍 Consultar").click()
+    at = at.run(timeout=20)
+    assert not at.exception
+
+    sent = captured[-1]["params"]
+    assert sent["date_from"] == "2026-10-02"
+    assert sent["date_to"] == "2026-10-09"
+    assert "lote_codigo" not in sent
+    assert at.session_state["rep_dni_filtro"].startswith("Fechas:")
+    assert "02/10/2026" in at.session_state["rep_dni_filtro"]
+
+
+def test_operators_report_by_date_range(ui_api, client, monkeypatch):
+    client.post("/api/lotes", json={"codigo": "REP-O"})
+    payload = {
+        "producto": None, "lote_codigo": None, "rows": [
             {"user_id": "op1", "total": 15, "dnis_distintos": 3, "ultima_lectura": "2026-01-05"},
         ],
     }
-    _patch_reports(monkeypatch, payload)
+    captured = _patch_reports(monkeypatch, payload)
 
     at = AppTest.from_string(SCRIPT).run(timeout=20)
-    next(b for b in at.button if b.label == "Generar reporte Operadores").click()
+    at.radio[0].set_value("Rango de fechas")
+    at = at.run(timeout=20)
+    next(b for b in at.button if b.label == "📋 Reporte de operadores").click()
     at = at.run(timeout=20)
     assert not at.exception
+    assert captured[-1]["params"]["date_from"]
     assert at.session_state["rep_op_data"]["rows"][0]["user_id"] == "op1"
     assert any("Reporte por operadores" in m.value for m in at.markdown)
-    assert len(at.dataframe) >= 1
 
 
-def test_report_buttons_stay_disabled_without_lotes(ui_api, monkeypatch):
+def test_date_range_validation_blocks_inverted_dates(ui_api, client, monkeypatch):
+    _patch_reports(monkeypatch, {"rows": []})
+    at = AppTest.from_string(SCRIPT).run(timeout=20)
+    at.radio[0].set_value("Rango de fechas")
+    at = at.run(timeout=20)
+    at.date_input(key="rep_desde").set_value(date(2026, 10, 9))
+    at.date_input(key="rep_hasta").set_value(date(2026, 10, 2))
+    at = at.run(timeout=20)
+    assert not at.exception
+    consultar = next(b for b in at.button if b.label == "🔍 Consultar")
+    assert consultar.disabled
+    assert any("fecha final" in w.value.lower() for w in at.warning)
+
+
+def test_report_buttons_stay_disabled_without_lotes_in_lote_mode(ui_api, monkeypatch):
     _patch_reports(monkeypatch, {"rows": []})
     at = AppTest.from_string(SCRIPT).run(timeout=20)
     assert not at.exception
-    generate = next(b for b in at.button if b.label == "Generar reporte DNI")
-    assert generate.disabled
-    assert "rep_dni_data" not in at.session_state
+    assert at.radio[0].value == "Lote"
+    consultar = next(b for b in at.button if b.label == "🔍 Consultar")
+    assert consultar.disabled
+    # En modo fechas el botón se habilita aunque no existan lotes.
+    at.radio[0].set_value("Rango de fechas")
+    at = at.run(timeout=20)
+    assert not next(b for b in at.button if b.label == "🔍 Consultar").disabled

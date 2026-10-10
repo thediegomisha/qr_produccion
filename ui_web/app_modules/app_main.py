@@ -3,9 +3,15 @@ import streamlit as st
 import base64
 import os
 from pathlib import Path
-from datetime import datetime, timedelta, timezone
 import requests
-import extra_streamlit_components as stx
+import streamlit.components.v1 as components
+from app_modules.session_cookies import (
+    COOKIE_NAME as REFRESH_COOKIE_NAME,
+    delete_cookie_script,
+    inactivity_logout_script,
+    read_refresh_cookie,
+    set_cookie_script,
+)
 from app_modules.modules import (
     apply_login_theme,
     label_for_section,
@@ -34,10 +40,8 @@ APP_VERSION = os.getenv("APP_VERSION", "v1.0.0")
 REMEMBER_LOGIN = os.getenv("REMEMBER_LOGIN", "1").strip().lower() not in ("0", "false", "no")
 REMEMBER_LOGIN_PERSISTENT = os.getenv("REMEMBER_LOGIN_PERSISTENT", "0").strip().lower() in ("1", "true", "yes")
 REFRESH_FALLBACK_ENABLED = os.getenv("REFRESH_FALLBACK_ENABLED", "0").strip().lower() in ("1", "true", "yes")
-REFRESH_COOKIE_NAME = "qr_refresh_token"
 REFRESH_COOKIE_DAYS = int(os.getenv("REFRESH_COOKIE_DAYS", "7"))
-COOKIE_MANAGER = stx.CookieManager(key="auth_cookie_manager")
-AUTH_RESTORE_TRIES_KEY = "_auth_restore_tries"
+INACTIVITY_LOGOUT_MINUTES = int(os.getenv("INACTIVITY_LOGOUT_MINUTES", "120"))
 REFRESH_FALLBACK_FILE = Path.home() / ".streamlit" / "qr_refresh_token.txt"
 FORCE_LOGOUT_KEY = "_force_logout"
 FORCE_LOGOUT_FILE = Path.home() / ".streamlit" / "qr_force_logout.flag"
@@ -92,52 +96,23 @@ def api_delete(path: str):
 
 
 def _get_refresh_cookie() -> str | None:
-    cookies = COOKIE_MANAGER.get_all()
-    if not cookies or not isinstance(cookies, dict):
-        return None
-
-    value = cookies.get(REFRESH_COOKIE_NAME)
-    if not value:
-        return None
-    if isinstance(value, str):
-        return value.strip() or None
-    return None
+    return read_refresh_cookie(st)
 
 
 def _set_refresh_cookie(token: str) -> None:
-    if REMEMBER_LOGIN_PERSISTENT:
-        COOKIE_MANAGER.set(
-            REFRESH_COOKIE_NAME,
+    # st.context.cookies es solo lectura: escribir la cookie vía JS en la ventana padre.
+    components.html(
+        set_cookie_script(
             token,
-            path="/",
-            expires_at=datetime.now(timezone.utc) + timedelta(days=REFRESH_COOKIE_DAYS),
-            same_site="lax",
-        )
-    else:
-        COOKIE_MANAGER.set(
-            REFRESH_COOKIE_NAME,
-            token,
-            path="/",
-            same_site="lax",
-        )
+            max_age_days=REFRESH_COOKIE_DAYS if REMEMBER_LOGIN_PERSISTENT else None,
+        ),
+        height=0,
+    )
 
 
 def _clear_refresh_cookie() -> None:
     try:
-        COOKIE_MANAGER.delete(REFRESH_COOKIE_NAME)
-    except Exception:
-        pass
-
-    # Refuerzo: algunos navegadores/componentes mantienen la cookie
-    # hasta el siguiente ciclo; max_age=0 fuerza expiración inmediata.
-    try:
-        COOKIE_MANAGER.set(
-            REFRESH_COOKIE_NAME,
-            "",
-            path="/",
-            max_age=0,
-            same_site="lax",
-        )
+        components.html(delete_cookie_script(), height=0)
     except Exception:
         pass
 
@@ -196,19 +171,14 @@ def try_restore_auth_from_refresh_cookie() -> None:
         return
 
     if st.session_state.get("auth"):
-        st.session_state[AUTH_RESTORE_TRIES_KEY] = 0
         return
 
-    if AUTH_RESTORE_TRIES_KEY not in st.session_state:
-        st.session_state[AUTH_RESTORE_TRIES_KEY] = 0
-
+    # st.context.cookies es síncrono: la cookie está disponible en esta misma
+    # ejecución, incluso tras un F5 (no se necesitan reintentos).
     refresh_token = _get_refresh_cookie()
     if not refresh_token and REFRESH_FALLBACK_ENABLED:
         refresh_token = _load_refresh_token_from_disk()
     if not refresh_token:
-        if st.session_state[AUTH_RESTORE_TRIES_KEY] < 2:
-            st.session_state[AUTH_RESTORE_TRIES_KEY] += 1
-            st.rerun()
         return
 
     try:
@@ -227,7 +197,6 @@ def try_restore_auth_from_refresh_cookie() -> None:
 
     data = r.json() or {}
     st.session_state.auth = data
-    st.session_state[AUTH_RESTORE_TRIES_KEY] = 0
     st.session_state[FORCE_LOGOUT_KEY] = False
     _set_force_logout_file(False)
     new_refresh = (data.get("refresh_token") or "").strip()
@@ -434,7 +403,6 @@ if not st.session_state.auth:
                 if r.status_code == 200:
                     data = r.json() or {}
                     st.session_state.auth = data
-                    st.session_state[AUTH_RESTORE_TRIES_KEY] = 0
                     st.session_state[FORCE_LOGOUT_KEY] = False
                     _set_force_logout_file(False)
                     if REMEMBER_LOGIN:
@@ -457,6 +425,11 @@ if not st.session_state.auth:
 # --------------------------------------------------
 # SIDEBAR / USER
 # --------------------------------------------------
+# Monitor de inactividad: cierra la sesión tras N minutos sin teclado/mouse.
+if not st.session_state.get("_idle_watch_active"):
+    components.html(inactivity_logout_script(INACTIVITY_LOGOUT_MINUTES), height=0)
+    st.session_state["_idle_watch_active"] = True
+
 rol = (st.session_state.auth.get("rol") or "").upper()
 usuario = st.session_state.auth.get("usuario") or st.session_state.auth.get("sub") or "?"
 
@@ -480,7 +453,6 @@ if selected_tab not in section_ids and section_ids:
     selected_tab = section_ids[0]
 if logout_clicked:
     st.session_state.auth = None
-    st.session_state[AUTH_RESTORE_TRIES_KEY] = 0
     st.session_state[FORCE_LOGOUT_KEY] = True
     _set_force_logout_file(True)
     st.session_state.pop("login_username", None)

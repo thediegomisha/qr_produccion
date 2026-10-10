@@ -14,7 +14,11 @@ La pestaña Lotes dispone de creación, búsqueda, paginación, edición y elimi
 
 El **Dashboard de producción** es la primera pestaña y muestra cajas procesadas por día y por lote (empacadas/seleccionadas) y la eficiencia del personal en cajas por hora, con filtros por rango de fechas y lote. Ver [dashboard](docs/dashboard.md).
 
-La pestaña **Reportes** permite generar el reporte por DNI y por operadores, **imprimirlo** (ventana de impresión del navegador con formato limpio) y **exportarlo a Excel** (.xlsx con encabezado del lote y fecha de generación).
+La pestaña **Reportes** permite buscar **por lote o por rango de fechas** (para cuando no se tiene el día exacto), generar el reporte por DNI y por operadores, **imprimirlo** (ventana de impresión del navegador con formato limpio) y **exportarlo a Excel** (.xlsx con encabezado del filtro y fecha de generación).
+
+## Sesión del usuario
+
+La sesión **sobrevive al refresco del navegador (F5)** mediante una cookie de refresco leída con el API nativa de Streamlit. Por seguridad, la sesión se cierra automáticamente tras **2 horas sin actividad de teclado/mouse**; la actividad en cualquier pestaña del navegador renueva el tiempo. El umbral es configurable con `INACTIVITY_LOGOUT_MINUTES` (por defecto 120).
 
 ## Actualizar la web sin reinstalar la impresión
 
