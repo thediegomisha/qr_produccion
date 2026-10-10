@@ -4,7 +4,6 @@ import base64
 import os
 from pathlib import Path
 import requests
-import streamlit.components.v1 as components
 from app_modules.session_cookies import (
     COOKIE_NAME as REFRESH_COOKIE_NAME,
     delete_cookie_script,
@@ -101,7 +100,7 @@ def _get_refresh_cookie() -> str | None:
 
 def _set_refresh_cookie(token: str) -> None:
     # st.context.cookies es solo lectura: escribir la cookie vía JS en la ventana padre.
-    components.html(
+    st.iframe(
         set_cookie_script(
             token,
             max_age_days=REFRESH_COOKIE_DAYS if REMEMBER_LOGIN_PERSISTENT else None,
@@ -112,7 +111,7 @@ def _set_refresh_cookie(token: str) -> None:
 
 def _clear_refresh_cookie() -> None:
     try:
-        components.html(delete_cookie_script(), height=0)
+        st.iframe(delete_cookie_script(), height=0)
     except Exception:
         pass
 
@@ -427,7 +426,7 @@ if not st.session_state.auth:
 # --------------------------------------------------
 # Monitor de inactividad: cierra la sesión tras N minutos sin teclado/mouse.
 if not st.session_state.get("_idle_watch_active"):
-    components.html(inactivity_logout_script(INACTIVITY_LOGOUT_MINUTES), height=0)
+    st.iframe(inactivity_logout_script(INACTIVITY_LOGOUT_MINUTES), height=0)
     st.session_state["_idle_watch_active"] = True
 
 rol = (st.session_state.auth.get("rol") or "").upper()

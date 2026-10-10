@@ -2,7 +2,7 @@
 
 Reemplaza al CookieManager de extra-streamlit-components:
 - Lectura: st.context.cookies (nativo de Streamlit, síncrono y fiable en F5).
-- Escritura/borrado: document.cookie en la ventana padre vía components.html.
+- Escritura/borrado: document.cookie en la ventana padre vía st.iframe.
 - Inactividad: JS que escucha mouse/teclado y cierra la sesión tras N minutos.
 """
 import json

@@ -152,10 +152,16 @@ def render(
             st.session_state["dashboard_hasta"] = pending_range[1]
 
         col_f1, col_f2, col_f3 = st.columns([1, 1, 2])
+        # Inicializar el rango solo si no existe: evita el conflicto entre
+        # el valor por defecto y el Session State API (warning de Streamlit).
+        if "dashboard_desde" not in st.session_state:
+            st.session_state["dashboard_desde"] = today - timedelta(days=7)
+        if "dashboard_hasta" not in st.session_state:
+            st.session_state["dashboard_hasta"] = today
         with col_f1:
-            date_from = st.date_input("Desde", value=today - timedelta(days=7), key="dashboard_desde")
+            date_from = st.date_input("Desde", key="dashboard_desde")
         with col_f2:
-            date_to = st.date_input("Hasta", value=today, key="dashboard_hasta")
+            date_to = st.date_input("Hasta", key="dashboard_hasta")
         with col_f3:
             lotes_items = _lotes_cacheados(st, api_get)
             codigos = [item["codigo"] for item in lotes_items]

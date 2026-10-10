@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 
 import pandas as pd
 import requests
-import streamlit.components.v1 as components
+import streamlit as _streamlit
 
 _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 _MODO_LOTE = "Lote"
@@ -113,7 +113,7 @@ def _print_button(html_doc: str, key_suffix: str, height: int = 44):
       🖨️ Imprimir reporte
     </button>
     """
-    components.html(script, height=height)
+    _streamlit.iframe(script, height=height)
 
 
 def _safe_filename(prefix: str, identificador: str) -> str:
