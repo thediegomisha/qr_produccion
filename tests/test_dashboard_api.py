@@ -49,6 +49,32 @@ def seeded(engine, session_factory):
         return {"lot_a": lot_a.id, "lot_b": lot_b.id}
 
 
+def test_mixed_alphanumeric_codes_are_classified_correctly(client, session_factory, engine):
+    """Cod_letra como 'A001' o 'M015' (letra+dígitos) debe clasificarse como selección,
+    y num_orden como '63' o '100' como empacada — el patrón anterior de solo-dígitos
+    las dejaba sin clasificar (total > empacadas + seleccionadas)."""
+    if engine.dialect.name != "postgresql":
+        pytest.skip("El dashboard requiere PostgreSQL")
+    lot_a = Lote(codigo="MIX-A", estado="ABIERTO")
+    with session_factory() as db:
+        db.add(lot_a)
+        db.flush()
+        # Cod_letra con letra+dígitos (patrón real de producción)
+        _make_scan(db, "mix1", "11111111", lot_a.id, datetime(2026, 1, 5, 17, 0, tzinfo=timezone.utc), "A001")
+        _make_scan(db, "mix2", "11111111", lot_a.id, datetime(2026, 1, 5, 18, 0, tzinfo=timezone.utc), "M015")
+        _make_scan(db, "mix3", "22222222", lot_a.id, datetime(2026, 1, 5, 17, 0, tzinfo=timezone.utc), "63")
+        _make_scan(db, "mix4", "22222222", lot_a.id, datetime(2026, 1, 5, 17, 0, tzinfo=timezone.utc), "100")
+        db.commit()
+
+    rows = client.get("/api/dashboard/cajas-por-dia").json()["rows"]
+    fila = next(r for r in rows if r["lote"] == "MIX-A")
+    # Con el patrón corregido: 2 empacadas (63, 100) + 2 seleccionadas (A001, M015) = 4 total
+    assert fila["total"] == 4
+    assert fila["empacadas"] == 2
+    assert fila["seleccionadas"] == 2
+    # Antes el patrón estricto dejaba 2 sin clasificar (A001 y M015).
+
+
 def test_dashboard_rejects_operators(client, user):
     user["rol"] = "OPERADOR"
     assert client.get("/api/dashboard/cajas-por-dia").status_code == 403

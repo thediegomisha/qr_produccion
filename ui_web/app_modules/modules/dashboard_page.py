@@ -19,17 +19,6 @@ _REFRESH_SECONDS = max(5, int(os.getenv("DASHBOARD_REFRESH_SECONDS", "30")))
 _LOTES_CACHE_TTL = 60  # el listado de lotes casi no cambia: refrescar 1 vez por minuto
 
 
-def _lotes_cacheados(st, api_get):
-    """Listado de lotes con caché por sesión para no consultarlo en cada tic."""
-    cache = st.session_state.get("_dash_lotes_cache")
-    if cache is not None and time.time() - cache[0] < _LOTES_CACHE_TTL:
-        return cache[1]
-    data = _request(st, api_get, "/lotes", {"limit": 200})
-    lotes = (data or {}).get("items", []) if data else []
-    st.session_state["_dash_lotes_cache"] = (time.time(), lotes)
-    return lotes
-
-
 def _request(st, api_get, path, params):
     response = api_get(path, params=params)
     try:
@@ -45,6 +34,17 @@ def _request(st, api_get, path, params):
         st.error("Respuesta inesperada de la API.")
         return None
     return data
+
+
+def _lotes_cacheados(st, api_get):
+    """Listado de lotes con caché por sesión para no consultarlo en cada tic."""
+    cache = st.session_state.get("_dash_lotes_cache")
+    if cache is not None and time.time() - cache[0] < _LOTES_CACHE_TTL:
+        return cache[1]
+    data = _request(st, api_get, "/lotes", {"limit": 200})
+    lotes = (data or {}).get("items", []) if data else []
+    st.session_state["_dash_lotes_cache"] = (time.time(), lotes)
+    return lotes
 
 
 def _kpi_card(label: str, value, color: str) -> str:
@@ -142,7 +142,6 @@ def render(
         preset_columns = st.columns(4)
         for (label, preset_from, preset_to), column in zip(presets, preset_columns):
             if column.button(label, key=f"dash_preset_{label}", width="stretch"):
-                # Rango pendiente: se aplica antes de instanciar los date_input.
                 st.session_state["_dash_pending_range"] = (preset_from, preset_to)
                 st.rerun()
 
@@ -152,8 +151,6 @@ def render(
             st.session_state["dashboard_hasta"] = pending_range[1]
 
         col_f1, col_f2, col_f3 = st.columns([1, 1, 2])
-        # Inicializar el rango solo si no existe: evita el conflicto entre
-        # el valor por defecto y el Session State API (warning de Streamlit).
         if "dashboard_desde" not in st.session_state:
             st.session_state["dashboard_desde"] = today - timedelta(days=7)
         if "dashboard_hasta" not in st.session_state:
@@ -180,23 +177,20 @@ def render(
         cajas = _request(st, api_get, "/dashboard/cajas-por-dia", params)
         efficiency = _request(st, api_get, "/dashboard/eficiencia-personal", params)
         ritmo = _request(st, api_get, "/dashboard/cajas-por-hora", params)
-        matriz = _request(st, api_get, "/dashboard/produccion-persona-lote", params)
         recientes = _request(
             st, api_get, "/dashboard/actividad-reciente",
             {"lote_codigo": params["lote_codigo"], "limit": 10},
         )
-        if any(v is None for v in (cajas, efficiency, ritmo, matriz, recientes)):
+        if any(v is None for v in (cajas, efficiency, ritmo, recientes)):
             return
 
         cajas_rows = cajas.get("rows", [])
         eff_rows = efficiency.get("rows", [])
         ritmo_rows = ritmo.get("rows", [])
-        matriz_rows = matriz.get("rows", [])
         recientes_rows = recientes.get("rows", [])
         df_dia = pd.DataFrame(cajas_rows) if cajas_rows else pd.DataFrame()
         df_eff = pd.DataFrame(eff_rows) if eff_rows else pd.DataFrame()
         df_horas = pd.DataFrame(ritmo_rows) if ritmo_rows else pd.DataFrame()
-        df_matriz = pd.DataFrame(matriz_rows) if matriz_rows else pd.DataFrame()
         df_recientes = pd.DataFrame(recientes_rows) if recientes_rows else pd.DataFrame()
 
         total = int(df_dia["total"].sum()) if not df_dia.empty else 0
@@ -219,8 +213,6 @@ def render(
 
         if df_dia.empty:
             if not df_recientes.empty:
-                # Hay lecturas en el servidor, pero fuera del rango seleccionado:
-                # indicar la última fecha registrada y ofrecer saltar hasta ella.
                 ultima = pd.to_datetime(df_recientes.iloc[0]["scanned_at"], utc=True).tz_convert(_TZ)
                 st.warning(
                     f"No hay lecturas entre el {date_from.strftime('%d/%m/%Y')} y el "
@@ -238,15 +230,12 @@ def render(
                 )
             return
 
-        # ---------- 2. Gráfica principal: cajas EMPACADAS por lote ----------
+        # ---------- 2. Barras VERTICALES: cajas empacadas por lote ----------
         st.markdown("### Cajas empacadas por lote")
-        st.caption(
-            "El empacado es la base para formar pallets. La selección se muestra "
-            "al lado (color claro) solo como referencia: son dos conceptos distintos."
-        )
+        st.caption("Producción empacada por lote — la base para formar pallets.")
         per_lot = df_dia.groupby("lote", as_index=False)[["empacadas", "seleccionadas"]].sum()
         per_lot["total"] = per_lot["empacadas"] + per_lot["seleccionadas"]
-        per_lot = per_lot.sort_values("empacadas", ascending=True)
+        per_lot = per_lot.sort_values("empacadas", ascending=False)
 
         series = per_lot.melt(
             id_vars="lote",
@@ -260,9 +249,9 @@ def render(
             alt.Chart(series)
             .mark_bar()
             .encode(
-                y=alt.Y("lote:N", sort=list(per_lot["lote"]), title="Lote"),
-                x=alt.X("cajas:Q", title="Cajas"),
-                yOffset=alt.YOffset("tipo:N", sort=["Empacadas", "Selección"]),
+                x=alt.X("lote:N", sort=list(per_lot["lote"]), title="Lote", axis=alt.Axis(labelAngle=-25)),
+                y=alt.Y("cajas:Q", title="Cajas"),
+                xOffset=alt.XOffset("tipo:N", sort=["Empacadas", "Selección"]),
                 color=alt.Color(
                     "tipo:N",
                     scale=alt.Scale(
@@ -273,12 +262,11 @@ def render(
                 ),
                 tooltip=["lote:N", "tipo:N", "cajas:Q"],
             )
-            .properties(height=max(140, 34 * len(per_lot)))
+            .properties(height=340)
         )
         st.altair_chart(chart_lot, width="stretch")
         st.dataframe(
-            per_lot[["lote", "empacadas", "seleccionadas", "total"]]
-            .sort_values("empacadas", ascending=False),
+            per_lot[["lote", "empacadas", "seleccionadas", "total"]],
             hide_index=True,
             width="stretch",
         )
@@ -360,69 +348,7 @@ def render(
                     f"con {int(mejor['empacadas'])} cajas empacadas."
                 )
 
-        # ---------- 4. Tendencia de EMPACADAS vs meta ----------
-        st.divider()
-        head_meta, col_meta = st.columns([3, 1])
-        head_meta.markdown("### Tendencia de empacadas vs meta")
-        with col_meta:
-            meta_diaria = st.number_input(
-                "Meta empacadas/día", min_value=1, value=100, step=10, key="dashboard_meta"
-            )
-
-        df_dia["dia"] = pd.to_datetime(df_dia["dia"]).dt.date
-        trend = df_dia.groupby("dia", as_index=False)["empacadas"].sum()
-        linea = (
-            alt.Chart(trend)
-            .mark_line(point=True, color=_COLOR_EMPACADAS)
-            .encode(
-                x=alt.X("dia:T", title="Día"),
-                y=alt.Y("empacadas:Q", title="Cajas empacadas"),
-                tooltip=["dia:T", "empacadas:Q"],
-            )
-        )
-        meta_rule = (
-            alt.Chart(pd.DataFrame({"meta": [int(meta_diaria)]}))
-            .mark_rule(color="#ff4747", strokeDash=[6, 4])
-            .encode(y="meta:Q")
-        )
-        st.altair_chart((linea + meta_rule).properties(height=260), width="stretch")
-        promedio = float(trend["empacadas"].mean())
-        avance = (promedio / int(meta_diaria) * 100) if meta_diaria else 0
-        st.caption(
-            f"Promedio: **{promedio:.0f} empacadas/día** · Meta: **{int(meta_diaria)}** · "
-            f"Avance: **{avance:.0f}%** — línea punteada roja = meta."
-        )
-
-        # ---------- 5. Heatmap: empacadas por persona y lote ----------
-        st.markdown("### Empacadas por persona y lote")
-        if df_matriz.empty:
-            st.caption("Sin datos de persona/lote en el rango seleccionado.")
-        else:
-            lote_order = (
-                df_matriz.groupby("lote")["empacadas"].sum().sort_values(ascending=False).index.tolist()
-            )
-            persona_order = (
-                df_matriz.groupby("persona")["empacadas"].sum().sort_values(ascending=False).index.tolist()
-            )
-            heatmap = (
-                alt.Chart(df_matriz)
-                .mark_rect()
-                .encode(
-                    x=alt.X("lote:N", sort=lote_order, title="Lote"),
-                    y=alt.Y("persona:N", sort=persona_order, title=None),
-                    color=alt.Color(
-                        "empacadas:Q",
-                        scale=alt.Scale(scheme="yelloworangered"),
-                        title="Empacadas",
-                    ),
-                    tooltip=["persona:N", "lote:N", "empacadas:Q", "seleccionadas:Q", "total:Q"],
-                )
-                .properties(height=max(140, 30 * len(persona_order)))
-            )
-            st.altair_chart(heatmap, width="stretch")
-            st.caption("Intensidad = cajas empacadas por persona en cada lote (base de pallets).")
-
-        # ---------- 6. Eficiencia: ranking por EMPACADAS ----------
+        # ---------- 4. Eficiencia: ranking por EMPACADAS ----------
         st.divider()
         st.markdown("### Eficiencia del personal")
         if df_eff.empty:
@@ -460,43 +386,12 @@ def render(
             width="stretch",
         )
 
-        # ---------- 7. Actividad reciente ----------
+        # ---------- 5. Actividad reciente ----------
         st.divider()
         st.markdown("### Actividad reciente")
         if df_recientes.empty:
             st.caption("Sin lecturas registradas todavía.")
         else:
             st.markdown(_activity_html(recientes_rows), unsafe_allow_html=True)
-
-        # ---------- 8. Vista secundaria: cajas por día ----------
-        st.divider()
-        with st.expander("Cajas por día (vista secundaria)"):
-            st.markdown("#### Cajas por día")
-            st.caption("Distribución diaria de empacadas y selección en el rango filtrado.")
-            per_day = (
-                df_dia.groupby("dia", as_index=False)[["empacadas", "seleccionadas"]].sum()
-                .melt("dia", var_name="tipo", value_name="cajas")
-                .replace({"tipo": {"empacadas": "Empacadas", "seleccionadas": "Selección"}})
-            )
-            chart_day = (
-                alt.Chart(per_day)
-                .mark_bar()
-                .encode(
-                    x=alt.X("dia:T", title="Día"),
-                    y=alt.Y("cajas:Q", title="Cajas"),
-                    color=alt.Color(
-                        "tipo:N",
-                        scale=alt.Scale(
-                            domain=["Empacadas", "Selección"],
-                            range=[_COLOR_EMPACADAS, _COLOR_SELECCION],
-                        ),
-                        title="Tipo",
-                    ),
-                    xOffset="tipo:N",
-                    tooltip=["dia:T", "tipo:N", "cajas:Q"],
-                )
-                .properties(height=320)
-            )
-            st.altair_chart(chart_day, width="stretch")
 
     _body()

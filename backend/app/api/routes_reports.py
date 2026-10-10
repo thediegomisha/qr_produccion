@@ -128,8 +128,8 @@ def dni_summary(
     totals_sql = text("""
     SELECT
       COUNT(*) AS total_lecturas,
-      COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[0-9]+$') AS emp_lecturas,
-      COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[A-Za-z]+$') AS sel_lecturas
+      COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[0-9]') AS emp_lecturas,
+      COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[A-Za-z]') AS sel_lecturas
     FROM scan_events se
     LEFT JOIN lotes l ON l.id = se.lote_id
     WHERE se.raw IS NOT NULL
@@ -155,8 +155,8 @@ def dni_summary(
         ),
         'SIN REGISTRO'
       ) AS persona,
-      COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[0-9]+$') AS empacador,
-      COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[A-Za-z]+$') AS seleccionador,
+      COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[0-9]') AS empacador,
+      COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[A-Za-z]') AS seleccionador,
       COUNT(*) AS total
     FROM scan_events se
     LEFT JOIN lotes l ON l.id = se.lote_id

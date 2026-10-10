@@ -45,8 +45,8 @@ def cajas_por_dia(
             (se.scanned_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date AS dia,
             COALESCE(l.codigo, 'SIN LOTE') AS lote,
             COUNT(*)::int AS total,
-            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[0-9]+$')::int AS empacadas,
-            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[A-Za-z]+$')::int AS seleccionadas
+            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[0-9]')::int AS empacadas,
+            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[A-Za-z]')::int AS seleccionadas
         FROM scan_events se
         LEFT JOIN lotes l ON l.id = se.lote_id
         WHERE (CAST(:date_from AS date) IS NULL OR se.scanned_at >= (CAST(:date_from AS date))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
@@ -98,7 +98,7 @@ def eficiencia_personal(
                 se.session_uuid,
                 (se.scanned_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date AS dia,
                 se.scanned_at,
-                (se.raw->>'id') ~ '^[0-9]+$' AS es_empacador
+                (se.raw->>'id') ~ '^[0-9]' AS es_empacador
             FROM scan_events se
             LEFT JOIN lotes l ON l.id = se.lote_id
             WHERE (CAST(:date_from AS date) IS NULL OR se.scanned_at >= (CAST(:date_from AS date))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
@@ -194,8 +194,8 @@ def eficiencia_por_dia(
             se.dni,
             COALESCE(NULLIF(TRIM(t.apellido_paterno || ' ' || COALESCE(t.apellido_materno, '') || ' ' || COALESCE(t.nombre, '')), ''), 'SIN REGISTRO') AS persona,
             COUNT(*)::int AS total_cajas,
-            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[0-9]+$')::int AS empacadas,
-            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[A-Za-z]+$')::int AS seleccionadas
+            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[0-9]')::int AS empacadas,
+            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[A-Za-z]')::int AS seleccionadas
         FROM scan_events se
         LEFT JOIN lotes l ON l.id = se.lote_id
         LEFT JOIN trabajadores t ON TRIM(t.dni) = TRIM(se.dni) AND t.activo = true
@@ -243,8 +243,8 @@ def cajas_por_hora(
         SELECT
             EXTRACT(HOUR FROM (se.scanned_at AT TIME ZONE 'UTC' AT TIME ZONE :tz))::int AS hora,
             COUNT(*)::int AS total,
-            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[0-9]+$')::int AS empacadas,
-            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[A-Za-z]+$')::int AS seleccionadas
+            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[0-9]')::int AS empacadas,
+            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[A-Za-z]')::int AS seleccionadas
         FROM scan_events se
         LEFT JOIN lotes l ON l.id = se.lote_id
         WHERE (CAST(:date_from AS date) IS NULL OR se.scanned_at >= (CAST(:date_from AS date))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
@@ -303,8 +303,8 @@ def produccion_persona_lote(
             ) AS persona,
             COALESCE(l.codigo, 'SIN LOTE') AS lote,
             COUNT(*)::int AS total,
-            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[0-9]+$')::int AS empacadas,
-            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[A-Za-z]+$')::int AS seleccionadas
+            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[0-9]')::int AS empacadas,
+            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[A-Za-z]')::int AS seleccionadas
         FROM scan_events se
         LEFT JOIN lotes l ON l.id = se.lote_id
         LEFT JOIN trabajadores t ON TRIM(t.dni) = TRIM(se.dni) AND t.activo = true
@@ -362,7 +362,7 @@ def actividad_reciente(
             ) AS persona,
             COALESCE(l.codigo, 'SIN LOTE') AS lote,
             CASE
-                WHEN (se.raw->>'id') ~ '^[0-9]+$' THEN 'Empacada'
+                WHEN (se.raw->>'id') ~ '^[0-9]' THEN 'Empacada'
                 ELSE 'Seleccionada'
             END AS tipo,
             se.scanned_at

@@ -83,10 +83,9 @@ def test_dashboard_is_lote_first_with_plecto_style_kpis(ui_api, client, session_
         card = next(v for v in values if label in v)
         assert f">{number}<" in card, f"KPI {label} no muestra {number}"
 
-    # La gráfica de EMPACADAS por LOTE es la sección principal y aparece antes que la vista por día.
+    # La gráfica de EMPACADAS por LOTE es la sección principal del dashboard.
     idx_lote = next(i for i, v in enumerate(values) if "Cajas empacadas por lote" in v)
-    idx_dia = next(i for i, v in enumerate(values) if "Cajas por día" in v)
-    assert idx_lote < idx_dia
+    assert idx_lote > 0  # aparece después de los KPIs
 
     # El ranking estilo Plecto muestra medallas para el personal.
     assert "🥇" in "".join(values)
@@ -104,15 +103,16 @@ def test_dashboard_is_lote_first_with_plecto_style_kpis(ui_api, client, session_
     assert ana["persona"] == "PEREZ  ANA"
     assert ana["total_cajas"] == 2
 
-    # Secciones del paquete completo: donut, ritmo horario, meta, heatmap y actividad.
+    # Secciones del dashboard simplificado: donut, ritmo horario y actividad.
     joined = "\n".join(values)
     assert "Distribución" in joined
     assert "Ritmo por hora del día" in joined
-    assert "Tendencia de empacadas vs meta" in joined
-    assert "Empacadas por persona y lote" in joined
     assert "Actividad reciente" in joined
     assert "Empacadas por hora" in joined
-    assert at.number_input(key="dashboard_meta") is not None
+    # Secciones eliminadas por solicitud: tendencia, heatmap y vista por día.
+    assert "Tendencia" not in joined
+    assert "persona y lote" not in joined
+    assert "Cajas por día" not in joined
 
     # Filtrar por el lote mantiene la página funcionando.
     at.selectbox(key="dashboard_lote").set_value(lote["codigo"])
