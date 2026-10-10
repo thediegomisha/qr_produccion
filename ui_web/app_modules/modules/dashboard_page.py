@@ -111,6 +111,26 @@ def render(
     @st.fragment(run_every="30s")
     def _body():
         today = date.today()
+
+        # ---- Atajos de rango ----
+        presets = [
+            ("Hoy", today, today),
+            ("7 días", today - timedelta(days=6), today),
+            ("30 días", today - timedelta(days=29), today),
+            ("90 días", today - timedelta(days=89), today),
+        ]
+        preset_columns = st.columns(4)
+        for (label, preset_from, preset_to), column in zip(presets, preset_columns):
+            if column.button(label, key=f"dash_preset_{label}", width="stretch"):
+                # Rango pendiente: se aplica antes de instanciar los date_input.
+                st.session_state["_dash_pending_range"] = (preset_from, preset_to)
+                st.rerun()
+
+        pending_range = st.session_state.pop("_dash_pending_range", None)
+        if pending_range is not None:
+            st.session_state["dashboard_desde"] = pending_range[0]
+            st.session_state["dashboard_hasta"] = pending_range[1]
+
         col_f1, col_f2, col_f3 = st.columns([1, 1, 2])
         with col_f1:
             date_from = st.date_input("Desde", value=today - timedelta(days=7), key="dashboard_desde")
@@ -173,7 +193,24 @@ def render(
             column.markdown(_kpi_card(label, value, color), unsafe_allow_html=True)
 
         if df_dia.empty:
-            st.info("No hay lecturas en el rango seleccionado.")
+            if not df_recientes.empty:
+                # Hay lecturas en el servidor, pero fuera del rango seleccionado:
+                # indicar la última fecha registrada y ofrecer saltar hasta ella.
+                ultima = pd.to_datetime(df_recientes.iloc[0]["scanned_at"], utc=True).tz_convert(_TZ)
+                st.warning(
+                    f"No hay lecturas entre el {date_from.strftime('%d/%m/%Y')} y el "
+                    f"{date_to.strftime('%d/%m/%Y')}. La última lectura registrada es del "
+                    f"**{ultima.strftime('%d/%m/%Y %H:%M')}** (hora Perú)."
+                )
+                c_go, _ = st.columns([1, 2])
+                if c_go.button("🔍 Ver el día de la última lectura", key="dash_ir_ultima", width="stretch"):
+                    st.session_state["_dash_pending_range"] = (ultima.date(), ultima.date())
+                    st.rerun()
+            else:
+                st.info(
+                    "No hay lecturas registradas todavía. Genere etiquetas en 🖨️ Impresión "
+                    "y escanee cajas con la APK para poblar el dashboard."
+                )
             return
 
         # ---------- 2. Gráfica principal: cajas por LOTE ----------

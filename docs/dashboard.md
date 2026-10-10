@@ -2,7 +2,9 @@
 
 ## Dashboard (`📈 Dashboard`)
 
-Disponible para ROOT, GERENCIA y SUPERVISOR. Filtros: rango de fechas (hora de Perú) y lote.
+Disponible para ROOT, GERENCIA y SUPERVISOR. Filtros: rango de fechas (hora de Perú) y lote, con **atajos de rango** (Hoy, 7 días, 30 días, 90 días) sobre los selectores de fecha.
+
+Si el rango seleccionado no tiene lecturas pero el servidor sí registra lecturas en otras fechas, el dashboard indica la **fecha de la última lectura registrada** y ofrece un botón para saltar directamente a ese día. Si el servidor aún no tiene lecturas, guía al usuario hacia la impresión y el escaneo con la APK.
 
 El diseño sigue el modelo de tableros estilo Plecto (números grandes en tarjetas, ranking del personal y visuales limpios), recreado en Streamlit:
 

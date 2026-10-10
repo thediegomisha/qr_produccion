@@ -126,7 +126,43 @@ def test_dashboard_empty_range_shows_info(ui_api, client, engine, user):
     ui_api.ROLE = "SUPERVISOR"
     at = AppTest.from_string(SCRIPT).run(timeout=20)
     assert not at.exception
-    assert any("No hay lecturas" in info.value for info in at.info)
+    assert any("No hay lecturas registradas" in info.value for info in at.info)
+
+
+def test_dashboard_empty_range_points_to_last_reading_and_jumps(ui_api, client, session_factory, engine, user):
+    """Con lecturas fuera del rango por defecto, avisa la última fecha y salta a ella."""
+    if engine.dialect.name != "postgresql":
+        pytest.skip("El dashboard requiere PostgreSQL")
+    _seed(client, session_factory, engine)  # lecturas del 05/01/2026
+    user["rol"] = "SUPERVISOR"
+    ui_api.ROLE = "SUPERVISOR"
+
+    at = AppTest.from_string(SCRIPT).run(timeout=20)
+    assert not at.exception
+
+    # El rango por defecto (últimos 7 días) está vacío pero existe data histórica.
+    warnings_text = [w.value for w in at.warning]
+    assert any("última lectura" in w for w in warnings_text)
+    assert any("05/01/2026" in w for w in warnings_text)
+
+    # Atajos de rango visibles.
+    labels = [b.label for b in at.button]
+    for preset in ("Hoy", "7 días", "30 días", "90 días"):
+        assert preset in labels
+
+    # El botón de salto ajusta el rango y muestra los datos de ese día.
+    next(b for b in at.button if b.label == "🔍 Ver el día de la última lectura").click()
+    at = at.run(timeout=20)
+    assert not at.exception
+    values = [m.value for m in at.markdown]
+    card = next(v for v in values if "Cajas totales" in v)
+    assert ">3<" in card
+
+    # El atajo "Hoy" limpia el rango de nuevo (hoy no tiene lecturas -> aviso).
+    next(b for b in at.button if b.label == "Hoy").click()
+    at = at.run(timeout=20)
+    assert not at.exception
+    assert any("última lectura" in w.value for w in at.warning)
 
 
 def test_dashboard_blocks_operators(ui_api, client, engine, user):
