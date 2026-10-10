@@ -8,13 +8,13 @@ Si el rango seleccionado no tiene lecturas pero el servidor sí registra lectura
 
 El diseño sigue el modelo de tableros estilo Plecto (números grandes en tarjetas, ranking del personal y visuales limpios), recreado en Streamlit:
 
-1. **Tarjetas KPI** con números grandes y acentos de color: Cajas totales, Empacadas, Seleccionadas, Personas activas y Días trabajados.
-2. **Gráfica principal: Cajas por lote** — barras apiladas horizontales por código de lote, separando cajas **empacadas** (`raw.id` numérico) y **seleccionadas** (`raw.id` alfabético), con tabla resumen debajo.
-3. **Distribución (donut)** — proporción empacadas/seleccionadas con el total al centro.
-4. **Ritmo por hora del día** — barras de cajas por hora (hora de Perú) con hora pico destacada.
-5. **Tendencia diaria vs meta** — línea de cajas/día con meta configurable (`Meta cajas/día`) y % de avance sobre el promedio.
-6. **Producción por persona y lote (heatmap)** — matriz de intensidad: quién trabajó en cada lote y cuánto.
-7. **Eficiencia del personal** — ranking estilo leaderboard con medallas 🥇🥈🥉 para el top 3, cajas totales y cajas/hora de cada trabajador. La eficiencia se calcula como cajas por hora activa (primera a última lectura de cada sesión, mínimo 1 minuto), seguida de la gráfica de cajas/hora y la tabla completa.
+1. **Tarjetas KPI** con números grandes y acentos de color. La primera es **Cajas empacadas** — la métrica de producción y base para formar pallets — seguida de Selección, Lecturas totales, Personas activas y Días trabajados.
+2. **Gráfica principal: Cajas empacadas por lote** — barras por código de lote con las **empacadas** al frente (color sólido) y la **selección** al lado en tono claro, solo como referencia: son dos conceptos distintos. Tabla resumen con empacadas en primer lugar.
+3. **Distribución (donut)** — proporción empacadas/selección con las empacadas al centro.
+4. **Ritmo por hora del día** — barras por hora (hora de Perú) separando empacadas y selección, con hora pico de empacado.
+5. **Tendencia de empacadas vs meta** — línea de empacadas/día con meta configurable (`Meta empacadas/día`) y % de avance sobre el promedio.
+6. **Empacadas por persona y lote (heatmap)** — matriz de intensidad basada en cajas empacadas (la selección aparece en el tooltip).
+7. **Eficiencia del personal** — ranking por **cajas empacadas** estilo leaderboard con medallas 🥇🥈🥉 para el top 3; cada fila muestra las empacadas como número principal y la selección como referencia, más la gráfica de empacadas/hora y la tabla completa.
 8. **Actividad reciente** — últimas 10 lecturas en vivo (hora local, persona, lote, tipo).
 9. **Cajas por día (vista secundaria)** — dentro de un panel desplegable al final; distribución diaria de empacadas/seleccionadas para revisión puntual.
 

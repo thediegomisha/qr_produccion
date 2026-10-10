@@ -4,9 +4,11 @@ import altair as alt
 import pandas as pd
 
 # Paleta estilo Plecto: números grandes en tarjetas y colores vivos.
+# El EMPACADO es la métrica de producción (base para formar pallets);
+# la SELECCIÓN es un concepto distinto y se muestra como referencia.
 _COLOR_EMPACADAS = "#00b3f4"
-_COLOR_SELECCIONADAS = "#ffb100"
-_COLOR_KPI = ["#00b3f4", "#58cf42", "#ffb100", "#9947ff", "#ff4747"]
+_COLOR_SELECCION = "#ffe08a"  # ámbar claro: visible pero secundario
+_COLOR_KPI = ["#00b3f4", "#ffb100", "#9947ff", "#58cf42", "#ff4747"]
 _MEDALS = ["🥇", "🥈", "🥉"]
 _LEADER_COLORS = ["#FFD700", "#C0C0C0", "#CD7F32"]
 _TZ = "America/Lima"
@@ -43,7 +45,8 @@ def _kpi_card(label: str, value, color: str) -> str:
 
 
 def _leaderboard_html(top: pd.DataFrame, limit: int = 10) -> str:
-    """Ranking estilo Plecto: medallas para el top 3 y cajas/cajas-hora destacados."""
+    """Ranking estilo Plecto priorizando las cajas EMPACADAS (base de pallets);
+    la selección se muestra como referencia secundaria."""
     rows = []
     for rank, entry in enumerate(top.head(limit).itertuples()):
         medal = _MEDALS[rank] if rank < len(_MEDALS) else f"<b>{rank + 1}</b>"
@@ -54,7 +57,8 @@ def _leaderboard_html(top: pd.DataFrame, limit: int = 10) -> str:
             f'background: {color}12; border-left: 4px solid {color};">'
             f'<div style="font-size: 15px;"><span style="margin-right: 8px;">{medal}</span>{entry.persona}</div>'
             f'<div style="font-size: 14px; color: #444;">'
-            f'<b style="font-size: 17px; color: {color};">{entry.total_cajas}</b> cajas'
+            f'<b style="font-size: 17px; color: {color};">{entry.empacadas}</b> empacadas'
+            f'&nbsp;·&nbsp; <span style="color:#888;">{entry.seleccionadas} selección</span>'
             f'&nbsp;·&nbsp; {entry.cajas_por_hora}/h</div>'
             f'</div>'
         )
@@ -65,7 +69,7 @@ def _activity_html(rows: list) -> str:
     """Feed de actividad reciente estilo Plecto: hora local, persona, lote y tipo."""
     items = []
     for row in rows:
-        color = _COLOR_EMPACADAS if row["tipo"] == "Empacada" else _COLOR_SELECCIONADAS
+        color = _COLOR_EMPACADAS if row["tipo"] == "Empacada" else "#ffb100"
         hora = pd.to_datetime(row["scanned_at"], utc=True).tz_convert(_TZ).strftime("%H:%M:%S")
         items.append(
             f'<div style="display:flex;align-items:center;gap:10px;padding:6px 12px;margin:3px 0;'
@@ -180,11 +184,11 @@ def render(
         personas = len(eff_rows)
         dias = df_dia["dia"].nunique() if not df_dia.empty else 0
 
-        # ---------- 1. KPIs estilo Plecto ----------
+        # ---------- 1. KPIs: el empacado lidera ----------
         kpis = [
-            ("Cajas totales", total),
-            ("Empacadas", emp),
-            ("Seleccionadas", sel),
+            ("Cajas empacadas", emp),
+            ("Selección", sel),
+            ("Lecturas totales", total),
             ("Personas activas", personas),
             ("Días trabajados", int(dias)),
         ]
@@ -213,45 +217,47 @@ def render(
                 )
             return
 
-        # ---------- 2. Gráfica principal: cajas por LOTE ----------
-        st.markdown("### Cajas por lote")
-        st.caption("Barras apiladas por lote: cajas empacadas y seleccionadas en el rango filtrado.")
+        # ---------- 2. Gráfica principal: cajas EMPACADAS por lote ----------
+        st.markdown("### Cajas empacadas por lote")
+        st.caption(
+            "El empacado es la base para formar pallets. La selección se muestra "
+            "al lado (color claro) solo como referencia: son dos conceptos distintos."
+        )
         per_lot = df_dia.groupby("lote", as_index=False)[["empacadas", "seleccionadas"]].sum()
         per_lot["total"] = per_lot["empacadas"] + per_lot["seleccionadas"]
-        per_lot = per_lot.sort_values("total", ascending=True)
+        per_lot = per_lot.sort_values("empacadas", ascending=True)
 
-        stacked = per_lot.melt(
+        series = per_lot.melt(
             id_vars="lote",
             value_vars=["empacadas", "seleccionadas"],
             var_name="tipo",
             value_name="cajas",
         )
-        stacked["tipo"] = stacked["tipo"].map({"empacadas": "Empacadas", "seleccionadas": "Seleccionadas"})
-        stacked["orden"] = stacked["tipo"].map({"Empacadas": 0, "Seleccionadas": 1})
+        series["tipo"] = series["tipo"].map({"empacadas": "Empacadas", "seleccionadas": "Selección"})
 
         chart_lot = (
-            alt.Chart(stacked)
+            alt.Chart(series)
             .mark_bar()
             .encode(
                 y=alt.Y("lote:N", sort=list(per_lot["lote"]), title="Lote"),
                 x=alt.X("cajas:Q", title="Cajas"),
+                yOffset=alt.YOffset("tipo:N", sort=["Empacadas", "Selección"]),
                 color=alt.Color(
                     "tipo:N",
                     scale=alt.Scale(
-                        domain=["Empacadas", "Seleccionadas"],
-                        range=[_COLOR_EMPACADAS, _COLOR_SELECCIONADAS],
+                        domain=["Empacadas", "Selección"],
+                        range=[_COLOR_EMPACADAS, _COLOR_SELECCION],
                     ),
                     title="Tipo",
                 ),
-                order=alt.Order("orden:Q", sort="ascending"),
                 tooltip=["lote:N", "tipo:N", "cajas:Q"],
             )
             .properties(height=max(140, 34 * len(per_lot)))
         )
         st.altair_chart(chart_lot, width="stretch")
         st.dataframe(
-            per_lot[["lote", "total", "empacadas", "seleccionadas"]]
-            .sort_values("total", ascending=False),
+            per_lot[["lote", "empacadas", "seleccionadas", "total"]]
+            .sort_values("empacadas", ascending=False),
             hide_index=True,
             width="stretch",
         )
@@ -262,7 +268,7 @@ def render(
             st.markdown("#### Distribución")
             tipo_df = pd.DataFrame([
                 {"tipo": "Empacadas", "cajas": emp},
-                {"tipo": "Seleccionadas", "cajas": sel},
+                {"tipo": "Selección", "cajas": sel},
             ])
             donut = (
                 alt.Chart(tipo_df)
@@ -272,8 +278,8 @@ def render(
                     color=alt.Color(
                         "tipo:N",
                         scale=alt.Scale(
-                            domain=["Empacadas", "Seleccionadas"],
-                            range=[_COLOR_EMPACADAS, _COLOR_SELECCIONADAS],
+                            domain=["Empacadas", "Selección"],
+                            range=[_COLOR_EMPACADAS, _COLOR_SELECCION],
                         ),
                         legend=None,
                     ),
@@ -281,55 +287,76 @@ def render(
                 )
             )
             centro = (
-                alt.Chart(pd.DataFrame({"t": [f"{total}"]}))
-                .mark_text(fontSize=30, fontWeight="bold", color="#333")
+                alt.Chart(pd.DataFrame({"t": [f"{emp}"]}))
+                .mark_text(fontSize=26, fontWeight="bold", color="#333")
                 .encode(text="t:N")
             )
             st.altair_chart((donut + centro).properties(height=220), width="stretch")
             pct_emp = (emp / total * 100) if total else 0
-            st.caption(f"🔵 Empacadas: **{emp}** ({pct_emp:.0f}%) · 🟠 Seleccionadas: **{sel}**")
+            st.caption(f"🔵 **{emp}** empacadas ({pct_emp:.0f}%) · 🟠 {sel} selección")
 
         with col_horas:
             st.markdown("#### Ritmo por hora del día")
             if df_horas.empty:
                 st.caption("Sin lecturas en el rango para mostrar el ritmo horario.")
             else:
+                horas_series = df_horas.melt(
+                    id_vars="hora",
+                    value_vars=["empacadas", "seleccionadas"],
+                    var_name="tipo",
+                    value_name="cajas",
+                )
+                horas_series["tipo"] = horas_series["tipo"].map(
+                    {"empacadas": "Empacadas", "seleccionadas": "Selección"}
+                )
                 chart_horas = (
-                    alt.Chart(df_horas)
-                    .mark_bar(color=_COLOR_KPI[0])
+                    alt.Chart(horas_series)
+                    .mark_bar()
                     .encode(
                         x=alt.X(
                             "hora:O",
                             title="Hora del día (Perú)",
                             axis=alt.Axis(labelExpr="datum.value + ':00'"),
                         ),
-                        y=alt.Y("total:Q", title="Cajas"),
-                        tooltip=["hora:O", "total:Q", "empacadas:Q", "seleccionadas:Q"],
+                        y=alt.Y("cajas:Q", title="Cajas"),
+                        xOffset=alt.XOffset("tipo:N", sort=["Empacadas", "Selección"]),
+                        color=alt.Color(
+                            "tipo:N",
+                            scale=alt.Scale(
+                                domain=["Empacadas", "Selección"],
+                                range=[_COLOR_EMPACADAS, _COLOR_SELECCION],
+                            ),
+                            title="Tipo",
+                        ),
+                        tooltip=["hora:O", "tipo:N", "cajas:Q"],
                     )
                     .properties(height=220)
                 )
                 st.altair_chart(chart_horas, width="stretch")
-                mejor = df_horas.loc[df_horas["total"].idxmax()]
-                st.caption(f"🏷️ Hora pico: **{int(mejor['hora'])}:00** con {int(mejor['total'])} cajas.")
+                mejor = df_horas.loc[df_horas["empacadas"].idxmax()]
+                st.caption(
+                    f"🏷️ Hora pico de empacado: **{int(mejor['hora'])}:00** "
+                    f"con {int(mejor['empacadas'])} cajas empacadas."
+                )
 
-        # ---------- 4. Tendencia diaria vs meta ----------
+        # ---------- 4. Tendencia de EMPACADAS vs meta ----------
         st.divider()
         head_meta, col_meta = st.columns([3, 1])
-        head_meta.markdown("### Tendencia diaria vs meta")
+        head_meta.markdown("### Tendencia de empacadas vs meta")
         with col_meta:
             meta_diaria = st.number_input(
-                "Meta cajas/día", min_value=1, value=100, step=10, key="dashboard_meta"
+                "Meta empacadas/día", min_value=1, value=100, step=10, key="dashboard_meta"
             )
 
         df_dia["dia"] = pd.to_datetime(df_dia["dia"]).dt.date
-        trend = df_dia.groupby("dia", as_index=False)["total"].sum()
+        trend = df_dia.groupby("dia", as_index=False)["empacadas"].sum()
         linea = (
             alt.Chart(trend)
-            .mark_line(point=True, color=_COLOR_KPI[0])
+            .mark_line(point=True, color=_COLOR_EMPACADAS)
             .encode(
                 x=alt.X("dia:T", title="Día"),
-                y=alt.Y("total:Q", title="Cajas"),
-                tooltip=["dia:T", "total:Q"],
+                y=alt.Y("empacadas:Q", title="Cajas empacadas"),
+                tooltip=["dia:T", "empacadas:Q"],
             )
         )
         meta_rule = (
@@ -338,23 +365,23 @@ def render(
             .encode(y="meta:Q")
         )
         st.altair_chart((linea + meta_rule).properties(height=260), width="stretch")
-        promedio = float(trend["total"].mean())
+        promedio = float(trend["empacadas"].mean())
         avance = (promedio / int(meta_diaria) * 100) if meta_diaria else 0
         st.caption(
-            f"Promedio: **{promedio:.0f} cajas/día** · Meta: **{int(meta_diaria)}** · "
+            f"Promedio: **{promedio:.0f} empacadas/día** · Meta: **{int(meta_diaria)}** · "
             f"Avance: **{avance:.0f}%** — línea punteada roja = meta."
         )
 
-        # ---------- 5. Heatmap persona × lote ----------
-        st.markdown("### Producción por persona y lote")
+        # ---------- 5. Heatmap: empacadas por persona y lote ----------
+        st.markdown("### Empacadas por persona y lote")
         if df_matriz.empty:
             st.caption("Sin datos de persona/lote en el rango seleccionado.")
         else:
             lote_order = (
-                df_matriz.groupby("lote")["total"].sum().sort_values(ascending=False).index.tolist()
+                df_matriz.groupby("lote")["empacadas"].sum().sort_values(ascending=False).index.tolist()
             )
             persona_order = (
-                df_matriz.groupby("persona")["total"].sum().sort_values(ascending=False).index.tolist()
+                df_matriz.groupby("persona")["empacadas"].sum().sort_values(ascending=False).index.tolist()
             )
             heatmap = (
                 alt.Chart(df_matriz)
@@ -363,18 +390,18 @@ def render(
                     x=alt.X("lote:N", sort=lote_order, title="Lote"),
                     y=alt.Y("persona:N", sort=persona_order, title=None),
                     color=alt.Color(
-                        "total:Q",
+                        "empacadas:Q",
                         scale=alt.Scale(scheme="yelloworangered"),
-                        title="Cajas",
+                        title="Empacadas",
                     ),
-                    tooltip=["persona:N", "lote:N", "total:Q", "empacadas:Q", "seleccionadas:Q"],
+                    tooltip=["persona:N", "lote:N", "empacadas:Q", "seleccionadas:Q", "total:Q"],
                 )
                 .properties(height=max(140, 30 * len(persona_order)))
             )
             st.altair_chart(heatmap, width="stretch")
-            st.caption("Intensidad = cajas procesadas por persona en cada lote.")
+            st.caption("Intensidad = cajas empacadas por persona en cada lote (base de pallets).")
 
-        # ---------- 6. Eficiencia del personal (ranking estilo Plecto) ----------
+        # ---------- 6. Eficiencia: ranking por EMPACADAS ----------
         st.divider()
         st.markdown("### Eficiencia del personal")
         if df_eff.empty:
@@ -382,20 +409,22 @@ def render(
             return
 
         st.caption(
-            "Eficiencia = cajas por hora activa (tiempo entre la primera y última lectura de cada sesión, "
-            "con un mínimo de 1 minuto por sesión escaneada)."
+            "Ranking por cajas empacadas — la base para formar pallets. La selección se "
+            "muestra como referencia. Eficiencia = cajas por hora activa (primera a última "
+            "lectura de cada sesión, mínimo 1 minuto)."
         )
-        top = df_eff.sort_values("total_cajas", ascending=False).reset_index(drop=True)
+        top = df_eff.sort_values("empacadas", ascending=False).reset_index(drop=True)
+        top["empacadas_por_hora"] = (top["empacadas"] / top["horas_activas"]).round(1)
         st.markdown(_leaderboard_html(top), unsafe_allow_html=True)
 
-        st.markdown("#### Cajas por hora")
+        st.markdown("#### Empacadas por hora")
         chart_rate = (
             alt.Chart(top)
-            .mark_line(point=True)
+            .mark_line(point=True, color=_COLOR_EMPACADAS)
             .encode(
                 x=alt.X("persona:N", sort="-y", title="Trabajador"),
-                y=alt.Y("cajas_por_hora:Q", title="Cajas/hora"),
-                tooltip=["persona:N", "cajas_por_hora:Q", "horas_activas:Q", "total_cajas:Q"],
+                y=alt.Y("empacadas_por_hora:Q", title="Empacadas/hora"),
+                tooltip=["persona:N", "empacadas_por_hora:Q", "horas_activas:Q", "empacadas:Q"],
             )
             .properties(height=300)
         )
@@ -403,7 +432,7 @@ def render(
 
         st.dataframe(
             top[[
-                "dni", "persona", "rol_trabajador", "total_cajas", "empacadas", "seleccionadas",
+                "dni", "persona", "rol_trabajador", "empacadas", "seleccionadas", "total_cajas",
                 "dias_trabajados", "sesiones", "horas_activas", "cajas_por_hora",
             ]],
             hide_index=True,
@@ -422,11 +451,11 @@ def render(
         st.divider()
         with st.expander("Cajas por día (vista secundaria)"):
             st.markdown("#### Cajas por día")
-            st.caption("Distribución diaria de empacadas y seleccionadas en el rango filtrado.")
+            st.caption("Distribución diaria de empacadas y selección en el rango filtrado.")
             per_day = (
                 df_dia.groupby("dia", as_index=False)[["empacadas", "seleccionadas"]].sum()
                 .melt("dia", var_name="tipo", value_name="cajas")
-                .replace({"tipo": {"empacadas": "Empacadas", "seleccionadas": "Seleccionadas"}})
+                .replace({"tipo": {"empacadas": "Empacadas", "seleccionadas": "Selección"}})
             )
             chart_day = (
                 alt.Chart(per_day)
@@ -437,8 +466,8 @@ def render(
                     color=alt.Color(
                         "tipo:N",
                         scale=alt.Scale(
-                            domain=["Empacadas", "Seleccionadas"],
-                            range=[_COLOR_EMPACADAS, _COLOR_SELECCIONADAS],
+                            domain=["Empacadas", "Selección"],
+                            range=[_COLOR_EMPACADAS, _COLOR_SELECCION],
                         ),
                         title="Tipo",
                     ),

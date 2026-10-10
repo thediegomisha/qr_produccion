@@ -71,11 +71,11 @@ def test_dashboard_is_lote_first_with_plecto_style_kpis(ui_api, client, session_
 
     values = [m.value for m in at.markdown]
 
-    # Tarjetas KPI estilo Plecto: números grandes dentro de tarjetas HTML.
+    # Tarjetas KPI: el EMPACADO lidera (base de pallets); selección y lecturas como contexto.
     kpis = {
-        "Cajas totales": "3",
-        "Empacadas": "2",
-        "Seleccionadas": "1",
+        "Cajas empacadas": "2",
+        "Selección": "1",
+        "Lecturas totales": "3",
         "Personas activas": "2",
         "Días trabajados": "1",
     }
@@ -83,8 +83,8 @@ def test_dashboard_is_lote_first_with_plecto_style_kpis(ui_api, client, session_
         card = next(v for v in values if label in v)
         assert f">{number}<" in card, f"KPI {label} no muestra {number}"
 
-    # La gráfica por LOTE es la sección principal y aparece antes que la vista por día.
-    idx_lote = next(i for i, v in enumerate(values) if "Cajas por lote" in v)
+    # La gráfica de EMPACADAS por LOTE es la sección principal y aparece antes que la vista por día.
+    idx_lote = next(i for i, v in enumerate(values) if "Cajas empacadas por lote" in v)
     idx_dia = next(i for i, v in enumerate(values) if "Cajas por día" in v)
     assert idx_lote < idx_dia
 
@@ -108,9 +108,10 @@ def test_dashboard_is_lote_first_with_plecto_style_kpis(ui_api, client, session_
     joined = "\n".join(values)
     assert "Distribución" in joined
     assert "Ritmo por hora del día" in joined
-    assert "Tendencia diaria vs meta" in joined
-    assert "Producción por persona y lote" in joined
+    assert "Tendencia de empacadas vs meta" in joined
+    assert "Empacadas por persona y lote" in joined
     assert "Actividad reciente" in joined
+    assert "Empacadas por hora" in joined
     assert at.number_input(key="dashboard_meta") is not None
 
     # Filtrar por el lote mantiene la página funcionando.
@@ -155,8 +156,11 @@ def test_dashboard_empty_range_points_to_last_reading_and_jumps(ui_api, client, 
     at = at.run(timeout=20)
     assert not at.exception
     values = [m.value for m in at.markdown]
-    card = next(v for v in values if "Cajas totales" in v)
+    # Tras saltar al día con datos: 3 lecturas totales, 2 empacadas.
+    card = next(v for v in values if "Lecturas totales" in v)
     assert ">3<" in card
+    card_emp = next(v for v in values if "Cajas empacadas" in v)
+    assert ">2<" in card_emp
 
     # El atajo "Hoy" limpia el rango de nuevo (hoy no tiene lecturas -> aviso).
     next(b for b in at.button if b.label == "Hoy").click()

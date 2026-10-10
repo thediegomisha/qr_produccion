@@ -226,6 +226,28 @@ def test_date_range_validation_blocks_inverted_dates(ui_api, client, monkeypatch
     assert any("fecha final" in w.value.lower() for w in at.warning)
 
 
+def test_missing_openpyxl_shows_warning_instead_of_crashing(ui_api, client, monkeypatch):
+    import app_modules.modules.reportes_page as page
+    monkeypatch.setattr(page, "_EXCEL_DISPONIBLE", False)
+    client.post("/api/lotes", json={"codigo": "REP-M"})
+    payload = {
+        "producto": None, "lote_codigo": "REP-M",
+        "totals": {"total_lecturas": 9, "emp_lecturas": 5, "sel_lecturas": 4},
+        "rows": [{"dni": "11111111", "persona": "PEREZ RUIZ ANA",
+                  "empacador": 5, "seleccionador": 0, "total": 5}],
+    }
+    _patch_reports(monkeypatch, payload)
+
+    at = AppTest.from_string(SCRIPT).run(timeout=20)
+    assert not at.exception
+    next(b for b in at.button if b.label == "🔍 Consultar").click()
+    at = at.run(timeout=20)
+    assert not at.exception  # sin openpyxl la página no se rompe
+    assert any("reporte por DNI" in m.value.lower() or "Reporte por DNI" in m.value
+               for m in at.markdown)
+    assert any("openpyxl" in w.value for w in at.warning)
+
+
 def test_report_buttons_stay_disabled_without_lotes_in_lote_mode(ui_api, monkeypatch):
     _patch_reports(monkeypatch, {"rows": []})
     at = AppTest.from_string(SCRIPT).run(timeout=20)

@@ -10,6 +10,29 @@ _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 _MODO_LOTE = "Lote"
 _MODO_FECHAS = "Rango de fechas"
 
+try:  # openpyxl se añadió a requirements.txt; un entorno sin actualizar no debe caer.
+    import openpyxl  # noqa: F401
+    _EXCEL_DISPONIBLE = True
+except ImportError:
+    _EXCEL_DISPONIBLE = False
+
+
+def _exportar_excel(st, contenedor, sub, df, prefix, identificador, key):
+    """Botón de descarga .xlsx; si falta openpyxl, avisa en lugar de romper la página."""
+    if not _EXCEL_DISPONIBLE:
+        contenedor.warning(
+            "Exportación a Excel no disponible: instale 'openpyxl' en el entorno "
+            "(`pip install -r requirements.txt`) y reinicie la aplicación."
+        )
+        return
+    contenedor.download_button(
+        "⬇️ Exportar a Excel",
+        data=_excel_bytes(sub, df),
+        file_name=_safe_filename(prefix, identificador),
+        mime=_XLSX_MIME,
+        key=key,
+    )
+
 
 def _report_subtitle(filtro: str, extra: str, producto: str) -> list[str]:
     generado = datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -255,13 +278,8 @@ def render(
             with x1:
                 sub = _report_subtitle(st.session_state.get("rep_dni_filtro") or filtro_label,
                                        "", dni_data.get("producto") or "")
-                st.download_button(
-                    "⬇️ Exportar a Excel",
-                    data=_excel_bytes(sub, df_dni),
-                    file_name=_safe_filename("reporte_dni", st.session_state.get("rep_dni_filtro") or "global"),
-                    mime=_XLSX_MIME,
-                    key="rep_dni_excel",
-                )
+                _exportar_excel(st, x1, sub, df_dni, "reporte_dni",
+                                st.session_state.get("rep_dni_filtro") or "global", "rep_dni_excel")
             with x2:
                 totals = [
                     ("Total lecturas", int(tot.get("total_lecturas", 0))),
@@ -290,13 +308,8 @@ def render(
                 sub = _report_subtitle(st.session_state.get("rep_op_filtro") or filtro_label,
                                        "Resumen por operador (usuario que escaneó)",
                                        op_data.get("producto") or "")
-                st.download_button(
-                    "⬇️ Exportar a Excel",
-                    data=_excel_bytes(sub, df_op),
-                    file_name=_safe_filename("reporte_operadores", st.session_state.get("rep_op_filtro") or "global"),
-                    mime=_XLSX_MIME,
-                    key="rep_op_excel",
-                )
+                _exportar_excel(st, y1, sub, df_op, "reporte_operadores",
+                                st.session_state.get("rep_op_filtro") or "global", "rep_op_excel")
             with y2:
                 _print_button(
                     _printable_html("Reporte de producción por operadores", sub, [], df_op),
