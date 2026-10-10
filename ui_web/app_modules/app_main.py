@@ -105,13 +105,13 @@ def _set_refresh_cookie(token: str) -> None:
             token,
             max_age_days=REFRESH_COOKIE_DAYS if REMEMBER_LOGIN_PERSISTENT else None,
         ),
-        height=0,
+        height=1,
     )
 
 
 def _clear_refresh_cookie() -> None:
     try:
-        st.iframe(delete_cookie_script(), height=0)
+        st.iframe(delete_cookie_script(), height=1)
     except Exception:
         pass
 
@@ -426,7 +426,7 @@ if not st.session_state.auth:
 # --------------------------------------------------
 # Monitor de inactividad: cierra la sesión tras N minutos sin teclado/mouse.
 if not st.session_state.get("_idle_watch_active"):
-    st.iframe(inactivity_logout_script(INACTIVITY_LOGOUT_MINUTES), height=0)
+    st.iframe(inactivity_logout_script(INACTIVITY_LOGOUT_MINUTES), height=1)
     st.session_state["_idle_watch_active"] = True
 
 rol = (st.session_state.auth.get("rol") or "").upper()
