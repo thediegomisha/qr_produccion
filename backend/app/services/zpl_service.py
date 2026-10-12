@@ -74,16 +74,8 @@ def generar_zpl_qr_4cols(
     total_w = (label_w * 4) + (gap * 3) + (margin * 2)
     total_h = label_h
 
-    # Coordenada de inicio del QR dentro de cada etiqueta (igual a 1-col: ^FO0,2)
-    qr_y = 35
-
-    # Layout base (tu etiqueta que sí funciona) para mag=3:
-    # QR: ^FO0,2 ^BQN,2,3
-    # BOX: ^FO55,71 ^GB70,40,40
-    # TXT: ^FO68,80 ^A0N,30,30
+    # Tamaños de referencia del recuadro y texto para magnificación 3.
     base_mag = 3
-    base_box_x = 55
-    base_box_y = 71
     base_box_w = 90
     base_box_h = 90
     base_font = 30
@@ -118,24 +110,30 @@ def generar_zpl_qr_4cols(
         # 1) Elegir magnificación que NO recorte el QR en 25x25
         modules = _qr_modules_count_H(data)
         # tamaño en módulos incluyendo quiet zone: (modules + 8)
-        max_mag = (label_w - 2 * margin) // (modules + 8)
+        max_mag = (min(label_w, label_h) - 2 * margin) // (modules + 8)
         mag = min(qr_mag, int(max_mag))
         if mag < 2:
             mag = 2  # mínimo razonable
 
+        # Centrar la matriz; el espacio blanco restante rodea el QR por igual.
+        qr_size = modules * mag
+        qr_x = x0 + (label_w - qr_size) // 2
+        qr_y = (label_h - qr_size) // 2
+
         # 2) Imprimir QR con ECC H (CRÍTICO)
-        zpl.append(f"^FO{x0},{qr_y}")
+        zpl.append(f"^FO{qr_x},{qr_y}")
         zpl.append(f"^BQN,2,{mag}")
         zpl.append(f"^FDHA,{data}^FS")   # 👈 HA (H)
 
         # 3) Escalar tu layout probado según magnificación
         scale = mag / base_mag
 
-        box_x = x0 + int(round(base_box_x * scale))
-        box_y = qr_y + int(round((base_box_y - qr_y) * scale))  # relativo al QR
         box_w = int(round(base_box_w * scale))
         box_h = int(round(base_box_h * scale))
         font  = int(round(base_font  * scale))
+
+        box_x = qr_x + (qr_size - box_w) // 2
+        box_y = qr_y + (qr_size - box_h) // 2
 
         # clamp (para que no se salga de la celda)
         box_x = max(x0, min(box_x, x0 + label_w - box_w))
