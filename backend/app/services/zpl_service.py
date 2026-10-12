@@ -143,8 +143,8 @@ def generar_zpl_qr_4cols(
         zpl.append(f"^FO{box_x},{box_y}")
         zpl.append(f"^GB{box_w},{box_h},{box_h},W,0^FS")
 
-        # 5) Texto centrado dentro del rectángulo
-        font = max(18, min(font, box_h - 6))
+        # 5) Aumentar un punto ZPL al texto y mantenerlo centrado.
+        font = min(max(18, font) + 1, box_h - 6)
         text_y = box_y + max(0, (box_h - font) // 2)
 
         zpl.append(f"^FO{box_x},{text_y}")
