@@ -75,7 +75,7 @@ def generar_zpl_qr_4cols(
     total_h = label_h
 
     # Tamaños de referencia del recuadro y texto para magnificación 3.
-    base_mag = 3
+    base_mag = 4
     base_box_w = 90
     base_box_h = 90
     base_font = 30
@@ -110,7 +110,7 @@ def generar_zpl_qr_4cols(
         # 1) Elegir magnificación que NO recorte el QR en 25x25
         modules = _qr_modules_count_H(data)
         # tamaño en módulos incluyendo quiet zone: (modules + 8)
-        max_mag = (min(label_w, label_h) - 2 * margin) // (modules + 8)
+        max_mag = min(label_w, label_h) // (modules + 8)
         mag = min(qr_mag, int(max_mag))
         if mag < 2:
             mag = 2  # mínimo razonable
@@ -144,7 +144,7 @@ def generar_zpl_qr_4cols(
         zpl.append(f"^GB{box_w},{box_h},{box_h},W,0^FS")
 
         # 5) Aumentar un punto ZPL al texto y mantenerlo centrado.
-        font = min(max(18, font) + 1, box_h - 6)
+        font = min(max(18, font) + 2, box_h - 6)
         text_y = box_y + max(0, (box_h - font) // 2)
 
         zpl.append(f"^FO{box_x},{text_y}")
