@@ -169,13 +169,27 @@ def render(
             codigos = [item["codigo"] for item in lotes_items]
             lote_filter = st.selectbox("Lote", ["TODOS", *codigos], key="dashboard_lote")
 
-        if date_to < date_from:
+        todo_lote = False
+        if lote_filter != "TODOS":
+            todo_lote = st.checkbox(
+                "Todo el lote (sin filtro de fechas)",
+                value=True,
+                key="dashboard_todo_lote",
+            )
+        alcance = (
+            "Alcance: todo el lote, sin filtro de fechas"
+            if todo_lote else
+            f"Rango: {date_from.strftime('%d/%m/%Y')} al {date_to.strftime('%d/%m/%Y')}"
+        )
+        st.caption(alcance)
+
+        if not todo_lote and date_to < date_from:
             st.warning("La fecha final debe ser mayor o igual a la inicial.")
             return
 
         params = {
-            "date_from": date_from.isoformat(),
-            "date_to": date_to.isoformat(),
+            "date_from": None if todo_lote else date_from.isoformat(),
+            "date_to": None if todo_lote else date_to.isoformat(),
             "lote_codigo": None if lote_filter == "TODOS" else lote_filter,
         }
 
@@ -396,7 +410,7 @@ def render(
         st.markdown("### Exportar dashboard")
         user = get_user(st)
         sub = [
-            f"Rango: {date_from.strftime('%d/%m/%Y')} al {date_to.strftime('%d/%m/%Y')}",
+            alcance,
             f"Lote: {lote_filter}",
             f"Cajas empacadas: {emp} | Selección: {sel} | Lecturas totales: {total}",
         ]

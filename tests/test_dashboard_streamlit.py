@@ -178,3 +178,43 @@ def test_dashboard_blocks_operators(ui_api, client, engine, user):
     at = AppTest.from_string(SCRIPT).run(timeout=20)
     assert not at.exception
     assert any("permisos" in message.value for message in at.error)
+
+
+def test_selected_lote_defaults_to_all_dates_and_can_filter(ui_api, client, session_factory, engine):
+    lote = _seed(client, session_factory, engine)
+    with session_factory() as db:
+        db.add(ScanEvent(token="other-day", dni="11111111", lote_id=lote["id"],
+                         scanned_at=datetime(2026, 1, 6, 17), raw={"id": "3"},
+                         user_id="op1", session_uuid="s2"))
+        db.commit()
+
+    calls = []
+    original = ui_api.api_get
+
+    def recorded_get(path, **kwargs):
+        if path.startswith("/dashboard/"):
+            calls.append((path, kwargs.get("params", {}).copy()))
+        return original(path, **kwargs)
+
+    ui_api.api_get = recorded_get
+    at = AppTest.from_string(SCRIPT).run(timeout=20)
+    at = _run_with_dates(at, date(2026, 1, 5))
+    at.selectbox(key="dashboard_lote").set_value(lote["codigo"])
+    calls.clear()
+    at.run(timeout=20)
+    assert not at.exception
+    assert at.checkbox(key="dashboard_todo_lote").value
+    assert any("todo el lote" in c.value for c in at.caption)
+    card = next(m.value for m in at.markdown if "Lecturas totales" in m.value)
+    assert ">4<" in card
+    for path, params in calls:
+        if path != "/dashboard/actividad-reciente":
+            assert params["date_from"] is None
+            assert params["date_to"] is None
+            assert params["lote_codigo"] == lote["codigo"]
+
+    at.checkbox(key="dashboard_todo_lote").uncheck().run(timeout=20)
+    assert not at.exception
+    card = next(m.value for m in at.markdown if "Lecturas totales" in m.value)
+    assert ">3<" in card
+    assert any("05/01/2026 al 05/01/2026" in c.value for c in at.caption)
