@@ -1,0 +1,4 @@
+ZXing JS Library 0.21.3
+https://github.com/zxing-js/library
+Apache License 2.0. See LICENSE.zxing.
+Distributed locally as zxing.min.js; no remote CDN is required.

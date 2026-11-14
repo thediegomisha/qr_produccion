@@ -164,6 +164,24 @@ def test_operator_summary_accepts_date_range(reportes_app):
     assert "op1" not in rows
 
 
+def test_reports_accept_iso_datetimes_from_old_apks(reportes_app):
+    """Compatibilidad: la APK anterior enviaba ISO-8601 UTC en vez de
+    AAAA-MM-DD. Debe aceptarse convirtiéndolo al día local de Perú."""
+    data = reportes_app.get("/api/reports/dni-summary",
+                            params={"date_from": "2026-03-05T05:00:00Z",
+                                    "date_to": "2026-03-05T23:59:59Z"}).json()
+    assert data["date_from"] == "2026-03-05"
+    assert data["date_to"] == "2026-03-05"
+    assert data["totals"]["total_lecturas"] == 1
+
+    # 2026-03-06T02:00Z todavía es 5 de marzo en Lima (UTC-5).
+    borde = reportes_app.get("/api/reports/dni-summary",
+                             params={"date_from": "2026-03-06T02:00:00Z",
+                                     "date_to": "2026-03-06T02:00:00Z"}).json()
+    assert borde["date_from"] == "2026-03-05"
+    assert borde["date_to"] == "2026-03-05"
+
+
 def test_reports_reject_partial_or_invalid_dates(reportes_app):
     assert reportes_app.get("/api/reports/dni-summary",
                             params={"date_from": "2026-03-01"}).status_code == 400

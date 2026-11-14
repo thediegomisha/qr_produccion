@@ -13,7 +13,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 MANIFEST = "qr-web-manifest.json"
 TOOLS = {"scripts/package_web_release.py", "scripts/deploy_web_release.py", "scripts/install_web_updater.sh"}
-DOCS = {"docs/despliegue-web.md"}
+DOCS = {"docs/despliegue-web.md", "docs/pwa-iphone.md"}
 REQUIRED = {
     "requirements.txt", "backend/app/main.py", "backend/app/services/agent_client.py",
     "backend/app/services/zpl_service.py", "ui_web/streamlit_app.py", *TOOLS, *DOCS,

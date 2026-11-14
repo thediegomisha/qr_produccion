@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="format-detection" content="telephone=no">
+  <meta name="theme-color" content="#0b1220">
+  <meta name="color-scheme" content="dark">
+
+  <title>QR Lector · Producción</title>
+  <meta name="description" content="Lector de QR y Code 39 para conteo de cajas, reportes y vigilancia.">
+
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icons/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
+
+  <!-- iOS: instalación desde Safari y pantalla completa -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="QR Lector">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+  <link rel="stylesheet" href="./css/app.css">
+</head>
+<body>
+  <div id="app" class="app"></div>
+  <div id="modal-root"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <!-- Decodificador QR / Code 39 local: funciona sin internet y sin CDN. -->
+  <script src="./vendor/zxing.min.js"></script>
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

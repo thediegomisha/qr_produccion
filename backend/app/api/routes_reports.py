@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
+from zoneinfo import ZoneInfo
 
 from app.db.base import SessionLocal
 from app.core.auth_dep import get_current_user
@@ -16,11 +17,27 @@ def _clean_date(value: Optional[str]) -> Optional[str]:
     value = _clean_optional(value)
     if not value:
         return None
+    # Formato oficial de la API: AAAA-MM-DD (día en hora Perú).
     try:
-        datetime.strptime(value, "%Y-%m-%d").date()
+        return datetime.strptime(value, "%Y-%m-%d").date().isoformat()
     except ValueError:
+        pass
+    # Compatibilidad: versiones anteriores de la APK enviaban ISO-8601 en UTC
+    # (p. ej. 2026-03-06T05:00:00Z). Se convierte a día local de Perú para que
+    # esos equipos sigan funcionando sin reinstalar la app.
+    try:
+        raw = value[:-1] + "+00:00" if value.endswith("Z") else value
+        dt = datetime.fromisoformat(raw)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        try:
+            tz = ZoneInfo(_TIMEZONE)
+        except Exception:
+            # Perú no aplica horario de verano: UTC-5 fijo como respaldo.
+            tz = timezone(timedelta(hours=-5))
+        return dt.astimezone(tz).date().isoformat()
+    except Exception:
         raise HTTPException(400, f"Fecha inválida (use AAAA-MM-DD): {value}")
-    return value
 
 
 def _date_pair(date_from: Optional[str], date_to: Optional[str]):
