@@ -4,7 +4,7 @@
    - Nunca cachea respuestas de la API.
    ============================================================ */
 
-const VERSION = "1.0.1";
+const VERSION = "1.1.0";
 const CACHE = `qrlector-pwa-${VERSION}`;
 const SCOPE = new URL("./", self.location.href).pathname;
 
@@ -16,7 +16,9 @@ const ASSETS = [
   "./js/db.js",
   "./js/scanner.js",
   "./js/app.js",
-  "./vendor/zxing.min.js",
+  "./js/decoder-worker.js",
+  "./vendor/zxing-wasm-reader.js",
+  "./vendor/zxing_reader.wasm",
   "./manifest.webmanifest",
   "./icons/favicon.svg",
   "./icons/icon-180.png",

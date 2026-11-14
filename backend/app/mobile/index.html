@@ -27,8 +27,7 @@
   <div id="modal-root"></div>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-  <!-- Decodificador QR / Code 39 local: funciona sin internet y sin CDN. -->
-  <script src="./vendor/zxing.min.js"></script>
+  <!-- ZXing-C++ WebAssembly se carga localmente desde un Worker. -->
   <script type="module" src="./js/app.js"></script>
 </body>
 </html>

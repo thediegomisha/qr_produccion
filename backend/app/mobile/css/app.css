@@ -481,6 +481,20 @@ img { max-width: 100%; }
 }
 .torch-btn svg { width: 21px; height: 21px; }
 .torch-btn.on { color: var(--warn); border-color: rgba(255, 204, 102, 0.5); }
+.camera-select {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 4;
+  max-width: calc(100% - 88px);
+  min-height: 44px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--bg-soft);
+  color: var(--text);
+  font-size: 16px;
+}
 
 .scan-status {
   display: grid;

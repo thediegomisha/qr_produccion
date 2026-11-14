@@ -18,7 +18,8 @@ def test_mobile_shell_and_local_assets_are_served_and_packaged():
         for name in (
             "", "index.html", "manifest.webmanifest", "sw.js", "css/app.css",
             "js/app.js", "js/api.js", "js/db.js", "js/scanner.js",
-            "vendor/zxing.min.js", "icons/icon-180.png", "icons/icon-192.png",
+            "js/decoder-worker.js", "vendor/zxing-wasm-reader.js", "vendor/zxing_reader.wasm",
+            "icons/icon-180.png", "icons/icon-192.png",
             "icons/icon-512.png", "icons/maskable-512.png",
         ):
             response = client.get(f"/api/movil/{name}")

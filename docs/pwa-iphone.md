@@ -21,6 +21,12 @@ Para cámara en LAN se necesita HTTPS con certificado confiable para el iPhone.
 
 - Login y renovación automática del access token mediante refresh token.
 - Conteo de cajas: QR, lote obligatorio, total y rejilla por DNI.
+- Motor ZXing-C++ compilado a WebAssembly (`zxing-wasm` 3.1.6), ejecutado en
+  un Worker para no bloquear la interfaz. Comparte el motor base de Android,
+  no necesariamente la misma revisión del código C++. Cámara y enfoque siguen
+  dependiendo de Safari. Conteo busca solo QR; vigilancia busca Code39 y QR.
+  Si la etiqueta se ve borrosa, usar el selector de cámara sobre la vista previa
+  para probar otra lente trasera y alejar ligeramente la etiqueta.
 - Detección local de tokens repetidos.
 - Lotes: selección y creación; cierre según permisos; reapertura solo ROOT.
 - Historial local: pendientes, enviados y recibos de envíos con duplicados.
@@ -96,6 +102,17 @@ npm install --prefix /tmp/opencode/pwa-tests --no-audit --no-fund playwright-cor
 NODE_PATH=/tmp/opencode/pwa-tests/node_modules \
   node tests/mobile-smoke.cjs
 ```
+
+Prueba de decodificación real (imagen QR → stream de cámara simulado → Worker
+→ ZXing-C++), incluyendo rotación e inversión:
+
+```bash
+npm install --prefix /tmp/opencode/pwa-tests --ignore-scripts --no-audit --no-fund qrcode@1.5.4
+NODE_PATH=/tmp/opencode/pwa-tests/node_modules node tests/mobile-decoder.cjs
+```
+
+Al actualizar desde la primera PWA, aceptar **Actualizar** y volver a abrirla.
+La versión del shell es `1.1.0`; incluye el JS del lector y el archivo WASM local.
 
 Opcionales: `CHROME_BIN` para la ruta del navegador y `MOBILE_URL` para una
 instancia local distinta. La prueba simula todas las respuestas de negocio.

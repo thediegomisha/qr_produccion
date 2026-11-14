@@ -164,6 +164,10 @@ def test_deploy_uses_new_python_env_and_only_restarts_web_services(source, legac
     assert ["systemctl", "restart", "qr-backend.service", "qr-frontend.service"] in system.calls
     assert not any("qr-agent" in " ".join(call) or "nssm" in call for call in system.calls)
     assert "/current/.venv/bin/python" in (units / "qr-backend.service.d/70-qr-web-release.conf").read_text()
+    for service, folder in (("qr-backend", "backend"), ("qr-frontend", "ui_web")):
+        override = (units / f"{service}.service.d/70-qr-web-release.conf").read_text()
+        assert f"\nWorkingDirectory={target / 'current' / folder}\n" in override
+        assert 'WorkingDirectory="' not in override
 
 
 def test_subsequent_release_keeps_persistent_settings(source, legacy, tmp_path):

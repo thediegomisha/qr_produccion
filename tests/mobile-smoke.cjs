@@ -88,6 +88,7 @@ const { chromium } = require("playwright-core");
     await page.reload();
     await page.getByRole("button", { name: "Volver", exact: true }).click();
     await page.getByRole("button", { name: /Conteo de cajas/ }).click();
+    await page.locator("#grid").waitFor();
     await page.evaluate(() => window.__lastScanHandler(JSON.stringify({ t: "offline-token", dni: "12345678" })));
     await page.waitForFunction(() => document.querySelector("#total")?.textContent === "TOTAL: 3");
     assert.deepEqual(errors, []);

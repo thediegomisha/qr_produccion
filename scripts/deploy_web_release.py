@@ -162,7 +162,7 @@ def deploy(archive_path, target, *, backend_service="qr-backend.service",
             override = unit_root / f"{service}.d/70-qr-web-release.conf"
             override.parent.mkdir(parents=True, exist_ok=True)
             override.write_text(
-                f'[Service]\nType=simple\nWorkingDirectory="{working_directory}"\nExecStart=\nExecStart={command}\n',
+                f'[Service]\nType=simple\nWorkingDirectory={working_directory}\nExecStart=\nExecStart={command}\n',
                 encoding="utf-8",
             )
         replace_link(current, release)

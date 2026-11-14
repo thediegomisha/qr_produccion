@@ -47,6 +47,7 @@ const FEATURES = {
 const state = {
   lote: null,
   scanner: null,
+  cameraDevice: null,
   cleanup: null,
   vigMode: "ENTRADA",
   vigItems: [],
@@ -536,7 +537,15 @@ async function startCamera(onText) {
   errorBox.hidden = true;
 
   const scanner = new Scanner(video, {
+    deviceId: state.cameraDevice,
     onResult: (text) => { Promise.resolve(onText(text)).catch(() => {}); },
+    formats: location.hash.includes("vigilancia") ? ["Code39", "QRCode"] : ["QRCode"],
+    onError: (error) => {
+      if (state.scanner === scanner) {
+        scanner.stop();
+        showCameraError(error);
+      }
+    },
   });
   state.scanner = scanner;
 
@@ -549,15 +558,44 @@ async function startCamera(onText) {
   }
   if (state.scanner !== scanner) return;
 
+  // iPhone can expose multiple rear lenses. Allow choosing a sharper lens
+  // rather than forcing whichever "environment" camera Safari selected.
+  try {
+    const devices = (await navigator.mediaDevices.enumerateDevices()).filter(device => device.kind === "videoinput");
+    if (state.scanner !== scanner) return;
+    video.parentElement.querySelector("#cameraSelect")?.remove();
+    if (devices.length > 1) {
+      const select = document.createElement("select");
+      select.id = "cameraSelect";
+      select.className = "camera-select";
+      select.setAttribute("aria-label", "Cámara de escaneo");
+      for (const [index, device] of devices.entries()) {
+        select.add(new Option(device.label || `Cámara ${index + 1}`, device.deviceId));
+      }
+      select.value = scanner.track?.getSettings?.().deviceId || state.cameraDevice || devices[0].deviceId;
+      select.addEventListener("change", () => {
+        state.cameraDevice = select.value;
+        stopScanner();
+        startCamera(onText);
+      });
+      video.parentElement.append(select);
+    }
+  } catch { /* camera enumeration is optional */ }
+
   const torch = document.getElementById("torch");
+  if (torch) {
+    torch.hidden = true;
+    torch.classList.remove("on");
+    torch.onclick = null;
+  }
   if (torch && await scanner.hasTorch()) {
     torch.hidden = false;
-    torch.addEventListener("click", async () => {
+    torch.onclick = async () => {
       const on = !torch.classList.contains("on");
       const applied = await scanner.setTorch(on);
       if (applied) torch.classList.add("on");
       else if (!on) torch.classList.remove("on");
-    });
+    };
   }
 }
 
@@ -1458,6 +1496,7 @@ if (!navigator.onLine) window.dispatchEvent(new Event("offline"));
 
 /* ------------------------------- PWA ---------------------------------- */
 if ("serviceWorker" in navigator) {
+  let hadController = Boolean(navigator.serviceWorker.controller);
   window.addEventListener("load", async () => {
     try {
       const registration = await navigator.serviceWorker.register("./sw.js", {
@@ -1488,6 +1527,11 @@ if ("serviceWorker" in navigator) {
 
       let reloading = false;
       navigator.serviceWorker.addEventListener("controllerchange", () => {
+        // First installation claims the page; it must not interrupt login/camera.
+        if (!hadController) {
+          hadController = true;
+          return;
+        }
         if (reloading) return;
         reloading = true;
         window.location.reload();

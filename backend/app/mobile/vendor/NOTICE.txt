@@ -2,3 +2,8 @@ ZXing JS Library 0.21.3
 https://github.com/zxing-js/library
 Apache License 2.0. See LICENSE.zxing.
 Distributed locally as zxing.min.js; no remote CDN is required.
+
+Active scanner: zxing-wasm 3.1.6 (MIT wrapper), compiling ZXing-C++ (Apache-2.0).
+https://github.com/sec-ant/zxing-wasm
+Files: zxing-wasm-reader.js and zxing_reader.wasm
+See LICENSE.zxing-wasm and LICENSE.zxing.
