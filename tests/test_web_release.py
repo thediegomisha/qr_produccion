@@ -2,6 +2,7 @@ import getpass
 import hashlib
 import json
 import subprocess
+from threading import Event
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -9,6 +10,33 @@ import pytest
 
 from scripts.deploy_web_release import deploy
 from scripts.package_web_release import MANIFEST, REQUIRED, build_release, validate_release
+from scripts import deploy_web_release
+
+
+def test_progress_reports_activity_during_long_steps(monkeypatch):
+    messages = []
+    heartbeat = Event()
+
+    def report(message):
+        messages.append(message)
+        if "En curso:" in message:
+            heartbeat.set()
+
+    monkeypatch.setattr(deploy_web_release, "HEARTBEAT_SECONDS", 0.01)
+    monkeypatch.setattr(deploy_web_release, "progress", report)
+    with deploy_web_release.stage("Instalando dependencias"):
+        assert heartbeat.wait(2), "Debe mostrar actividad sin esperar que termine el comando"
+    assert messages[0] == "Instalando dependencias"
+    assert messages[-1].strip().startswith("OK")
+
+
+def test_progress_failure_does_not_print_private_command_output(capsys):
+    with pytest.raises(subprocess.CalledProcessError):
+        with deploy_web_release.stage("Instalando dependencias"):
+            raise subprocess.CalledProcessError(1, ["pip"], output="PRIVATE_INDEX_PASSWORD")
+    output = capsys.readouterr().out
+    assert "FALLÓ: Instalando dependencias" in output
+    assert "PRIVATE_INDEX_PASSWORD" not in output
 
 
 @pytest.fixture

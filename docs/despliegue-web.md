@@ -48,6 +48,22 @@ Copiar únicamente el ZIP web al servidor y ejecutar:
 sudo actualizar-qr-web /ruta/qr-web-web-20261007-01.zip
 ```
 
+El actualizador muestra ocho etapas, confirma cada operación larga y, cada
+10 segundos, muestra **En curso** con el tiempo transcurrido. Esto indica que
+la etapa todavía no terminó; no es un porcentaje de descarga ni garantiza que
+la red o el disco estén avanzando. La salida interna de pip permanece oculta
+para evitar exponer credenciales de índices privados.
+
+Si falla una etapa se identifica con **FALLÓ**. Si ya se cambió la versión
+activa, se informa la restauración de la configuración anterior.
+Para incorporar estas mejoras a una instalación existente:
+
+```bash
+cd "$HOME/qr-web-source"
+git pull --ff-only origin main
+sudo bash scripts/install_web_updater.sh
+```
+
 El comando:
 
 1. Valida el contenido y los hashes del paquete.

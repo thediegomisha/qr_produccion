@@ -11,7 +11,9 @@ import subprocess
 import sys
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
+from threading import Event, Thread
 from urllib.request import urlopen
 from zipfile import ZipFile
 
@@ -23,6 +25,39 @@ except ModuleNotFoundError:
 
 def run_command(args):
     return subprocess.run(args, check=True, capture_output=True, text=True)
+
+
+HEARTBEAT_SECONDS = 10
+
+
+def progress(message):
+    print(message, flush=True)
+
+
+@contextmanager
+def stage(label):
+    """Show activity even when subprocess output must remain confidential."""
+    started = time.monotonic()
+    finished = Event()
+    progress(label)
+
+    def heartbeat():
+        while not finished.wait(HEARTBEAT_SECONDS):
+            elapsed = int(time.monotonic() - started)
+            progress(f"    En curso: {label} ({elapsed} s transcurridos)")
+
+    thread = Thread(target=heartbeat, daemon=True)
+    thread.start()
+    try:
+        yield
+    except BaseException:
+        progress(f"    FALLÓ: {label} ({time.monotonic() - started:.1f} s)")
+        raise
+    else:
+        progress(f"    OK ({time.monotonic() - started:.1f} s)")
+    finally:
+        finished.set()
+        thread.join()
 
 
 def wait_for_health(backend_port, frontend_port):
@@ -78,6 +113,7 @@ def deploy(archive_path, target, *, backend_service="qr-backend.service",
         return runner(["systemctl", "show", service, f"--property={name}", "--value"]).stdout.strip()
 
     info = {}
+    progress("[1/8] Comprobando servicios y configuración...")
     for service in services:
         if property_of(service, "LoadState") != "loaded":
             raise ValueError(f"No existe el servicio web {service}")
@@ -96,23 +132,28 @@ def deploy(archive_path, target, *, backend_service="qr-backend.service",
         raise ValueError("El destino web debe ser una carpeta separada de la instalación original")
 
     with ZipFile(archive_path) as archive:
-        manifest = validate_release(archive)
+        with stage("[2/8] Validando paquete y hashes..."):
+            manifest = validate_release(archive)
         release = target / "releases" / manifest["version"]
         if release.exists():
             raise ValueError("Esa versión ya está preparada; genere el paquete con una nueva versión")
         target.mkdir(parents=True, exist_ok=True)
         release.mkdir(parents=True)
         try:
-            for item in manifest["files"]:
-                output = release / item["path"]
-                output.parent.mkdir(parents=True, exist_ok=True)
-                output.write_bytes(archive.read(item["path"]))
+            with stage("[3/8] Extrayendo archivos..."):
+                for item in manifest["files"]:
+                    output = release / item["path"]
+                    output.parent.mkdir(parents=True, exist_ok=True)
+                    output.write_bytes(archive.read(item["path"]))
             (release / MANIFEST).write_text(json.dumps(manifest, indent=2), encoding="utf-8")
             # Per-release Python environment: installing web dependencies never updates the agent's venv.
-            runner([python, "-m", "venv", str(release / ".venv")])
+            with stage("[4/8] Creando entorno Python..."):
+                runner([python, "-m", "venv", str(release / ".venv")])
             interpreter = release / ".venv/bin/python"
-            runner([str(interpreter), "-m", "pip", "install", "-r", str(release / "requirements.txt")])
+            with stage("[5/8] Instalando dependencias (puede tardar varios minutos)..."):
+                runner([str(interpreter), "-m", "pip", "install", "-r", str(release / "requirements.txt")])
 
+            progress("[6/8] Conservando configuración y preparando servicios...")
             shared = target / "shared"
             shared.mkdir(exist_ok=True)
             persistent_env = shared / "backend.env"
@@ -166,10 +207,13 @@ def deploy(archive_path, target, *, backend_service="qr-backend.service",
                 encoding="utf-8",
             )
         replace_link(current, release)
-        runner(["systemctl", "daemon-reload"])
-        runner(["systemctl", "restart", backend_service, frontend_service])
-        health_check(backend_port, frontend_port)
+        with stage("[7/8] Aplicando configuración y reiniciando servicios web..."):
+            runner(["systemctl", "daemon-reload"])
+            runner(["systemctl", "restart", backend_service, frontend_service])
+        with stage("[8/8] Verificando backend y frontend..."):
+            health_check(backend_port, frontend_port)
     except Exception:
+        progress("El despliegue falló. Restaurando la configuración anterior...")
         if previous is not None:
             replace_link(current, previous)
         else:
@@ -179,8 +223,10 @@ def deploy(archive_path, target, *, backend_service="qr-backend.service",
                 path.unlink(missing_ok=True)
             else:
                 path.write_bytes(content)
-        runner(["systemctl", "daemon-reload"])
-        runner(["systemctl", "restart", backend_service, frontend_service])
+        with stage("Reiniciando los servicios con la configuración anterior..."):
+            runner(["systemctl", "daemon-reload"])
+            runner(["systemctl", "restart", backend_service, frontend_service])
+        progress("Configuración anterior restaurada. La actualización NO se completó.")
         raise
     return manifest
 
@@ -207,7 +253,7 @@ def main():
         # Do not echo pip/environment output that could contain server configuration.
         print(f"Falló un paso del despliegue (código {failure.returncode}).", file=sys.stderr)
         raise SystemExit(1)
-    print(f"Web actualizada: {result['version']}. Backend y frontend verificados.")
+    progress(f"Web actualizada: {result['version']}. Backend y frontend verificados.")
 
 
 if __name__ == "__main__":
