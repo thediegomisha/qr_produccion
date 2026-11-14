@@ -19,7 +19,7 @@ def login(data: dict):
     with SessionLocal() as db:
         row = db.execute(
             text("""
-                SELECT usuario, password_hash, rol
+                SELECT usuario, nombre, password_hash, rol
                 FROM usuarios
                 WHERE usuario = :u AND activo = true
             """),
@@ -33,6 +33,7 @@ def login(data: dict):
             raise HTTPException(401, "Contraseña incorrecta")
 
         usuario_db = row["usuario"]
+        nombre_db = (row.get("nombre") or "").strip()
         rol_db = (row.get("rol") or "").upper()
 
     token = create_access_token({"sub": usuario_db, "rol": rol_db})
@@ -43,6 +44,7 @@ def login(data: dict):
         "refresh_token": refresh_token,
         "token_type": "bearer",
         "usuario": usuario_db,
+        "nombre": nombre_db,
         "rol": rol_db
     }
 
@@ -70,7 +72,7 @@ def refresh(data: dict):
     with SessionLocal() as db:
         row = db.execute(
             text("""
-                SELECT usuario, rol
+                SELECT usuario, nombre, rol
                 FROM usuarios
                 WHERE usuario = :u AND activo = true
             """),
@@ -81,6 +83,7 @@ def refresh(data: dict):
             raise HTTPException(401, "Usuario no válido")
 
         rol_db = (row.get("rol") or "").upper()
+        nombre_db = (row.get("nombre") or "").strip()
 
     new_access = create_access_token({"sub": usuario, "rol": rol_db})
     new_refresh = create_refresh_token({"sub": usuario, "rol": rol_db})
@@ -90,9 +93,21 @@ def refresh(data: dict):
         "refresh_token": new_refresh,
         "token_type": "bearer",
         "usuario": usuario,
+        "nombre": nombre_db,
         "rol": rol_db,
     }
 
 @router.get("/me")
 def me(user: dict = Depends(get_current_user)):
-    return user
+    with SessionLocal() as db:
+        row = db.execute(text("""
+            SELECT usuario, nombre, rol FROM usuarios
+            WHERE usuario = :u AND activo = true
+        """), {"u": user["usuario"]}).mappings().first()
+    if not row:
+        raise HTTPException(401, "Usuario no válido")
+    return {
+        "usuario": row["usuario"],
+        "nombre": (row.get("nombre") or "").strip(),
+        "rol": (row.get("rol") or "").upper(),
+    }

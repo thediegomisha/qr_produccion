@@ -11,6 +11,7 @@ const K_ACCESS = "qr.access";
 const K_REFRESH = "qr.refresh";
 const K_USER = "qr.user";
 const K_ROLE = "qr.role";
+const K_NAME = "qr.name";
 
 export class ApiError extends Error {
   constructor(status, message, body) {
@@ -59,16 +60,23 @@ export const session = {
   get access() { return read(K_ACCESS); },
   get refresh() { return read(K_REFRESH); },
   user() { return read(K_USER); },
+  name() { return read(K_NAME); },
   role() { return normalizeRole(read(K_ROLE) || jwtPayload(this.access)?.rol); },
   has() { return Boolean(this.access || this.refresh); },
   save(data) {
+    const previousUser = this.user();
     write(K_ACCESS, data.access_token || "");
     if (data.refresh_token) write(K_REFRESH, data.refresh_token);
     write(K_USER, data.usuario || jwtPayload(data.access_token)?.sub || "");
     write(K_ROLE, normalizeRole(data.rol || jwtPayload(data.access_token)?.rol));
+    if (data.nombre !== undefined || previousUser !== this.user()) write(K_NAME, String(data.nombre || "").trim());
+  },
+  saveProfile(data) {
+    if (data.usuario === this.user()) write(K_NAME, String(data.nombre || "").trim());
   },
   clear() {
     remove(K_ACCESS); remove(K_REFRESH); remove(K_USER); remove(K_ROLE);
+    remove(K_NAME);
   },
   expiresSoon(marginSeconds = 90) {
     const payload = jwtPayload(this.access);

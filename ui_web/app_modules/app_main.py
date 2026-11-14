@@ -445,6 +445,13 @@ if not st.session_state.get("_idle_watch_active"):
 
 rol = (st.session_state.auth.get("rol") or "").upper()
 usuario = st.session_state.auth.get("usuario") or st.session_state.auth.get("sub") or "?"
+if "nombre" not in st.session_state.auth:
+    try:
+        profile_response = api_get("/auth/me")
+        if profile_response.ok:
+            st.session_state.auth["nombre"] = profile_response.json().get("nombre") or ""
+    except requests.RequestException:
+        pass  # Keep the nickname visible if the profile is temporarily unavailable.
 
 # No re-inicializar siempre; solo si falta
 if "selected_printer_name" not in st.session_state:
@@ -461,6 +468,7 @@ selected_tab, logout_clicked = render_user_sidebar(
     section_ids,
     label_for_section,
     APP_VERSION,
+    nombre=st.session_state.auth.get("nombre") or "",
 )
 if selected_tab not in section_ids and section_ids:
     selected_tab = section_ids[0]

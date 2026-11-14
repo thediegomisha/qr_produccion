@@ -20,6 +20,9 @@ Para cámara en LAN se necesita HTTPS con certificado confiable para el iPhone.
 ## Funciones
 
 - Login y renovación automática del access token mediante refresh token.
+- El menú muestra nombre registrado, nickname y rol. El nombre se toma del campo
+  **Nombre** de Administración de usuarios; si está vacío se conserva el nickname.
+  La web principal muestra la misma identificación en la barra lateral.
 - Conteo de cajas: QR, lote obligatorio, total y rejilla por DNI.
 - Motor ZXing-C++ compilado a WebAssembly (`zxing-wasm` 3.1.6), ejecutado en
   un Worker para no bloquear la interfaz. Comparte el motor base de Android,

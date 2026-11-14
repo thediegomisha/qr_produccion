@@ -320,8 +320,9 @@ function renderLogin() {
 /* ------------------------------- Menú --------------------------------- */
 function renderMenu() {
   const user = session.user() || "Usuario";
+  const name = session.name();
   const role = session.role() || "SIN ROL";
-  const initial = user.slice(0, 1).toUpperCase();
+  const initial = (name || user).slice(0, 1).toUpperCase();
 
   const tiles = [];
   if (can("INGRESO")) {
@@ -352,8 +353,8 @@ function renderMenu() {
       <div class="hero">
         <div class="avatar">${esc(initial)}</div>
         <div class="who">
-          <h1>${esc(user)}</h1>
-          <p>${esc(role)}</p>
+          <h1>${esc(name || user)}</h1>
+          <p>${name ? `@${esc(user)} · ` : ""}${esc(role)}</p>
         </div>
       </div>
 
@@ -1492,6 +1493,16 @@ window.addEventListener("hashchange", render);
 
 /* ------------------------------- Arranque ----------------------------- */
 render();
+// Enrich sessions created before the name field existed; keep offline data intact.
+if (session.has()) {
+  const user = session.user();
+  api.me().then(profile => {
+    if (session.user() !== user) return;
+    session.saveProfile(profile);
+    const route = location.hash.replace(/^#\/?/, "");
+    if ((!route || route === "menu") && !modalRoot.childElementCount) renderMenu();
+  }).catch(() => { /* Offline: retain the last known profile. */ });
+}
 if (!navigator.onLine) window.dispatchEvent(new Event("offline"));
 
 /* ------------------------------- PWA ---------------------------------- */

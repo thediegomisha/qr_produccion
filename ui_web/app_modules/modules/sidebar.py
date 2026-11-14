@@ -1,4 +1,5 @@
 import streamlit as st
+from html import escape
 
 
 def render_user_sidebar(
@@ -7,13 +8,15 @@ def render_user_sidebar(
     section_ids: list[str],
     label_for_section,
     app_version: str,
+    nombre: str = "",
 ) -> tuple[str, bool]:
     st.sidebar.markdown(
         f"""
         <div class="user-panel">
           <div class="user-label">Usuario activo</div>
-          <div class="user-name">{usuario}</div>
-          <div class="user-role">Rol: {rol}</div>
+          <div class="user-name">{escape(nombre or usuario)}</div>
+          {f'<div class="user-nickname">@{escape(usuario)}</div>' if nombre else ''}
+          <div class="user-role">Rol: {escape(rol)}</div>
         </div>
         """,
         unsafe_allow_html=True,

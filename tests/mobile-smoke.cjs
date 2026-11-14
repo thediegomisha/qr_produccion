@@ -27,7 +27,9 @@ const { chromium } = require("playwright-core");
       let body;
       if (path === "/api/auth/login" || path === "/api/auth/refresh") {
         if (path.endsWith("refresh")) refreshes++;
-        body = { access_token: access(), refresh_token: "mock-refresh", usuario: "smoke", rol: "ROOT" };
+        body = { access_token: access(), refresh_token: "mock-refresh", usuario: "smoke", nombre: "Usuario de Prueba", rol: "ROOT" };
+      } else if (path === "/api/auth/me") {
+        body = { usuario: "smoke", nombre: "Usuario de Prueba", rol: "ROOT" };
       } else if (path === "/api/lotes") {
         body = { items: [{ codigo: "SMOKE", estado: "ABIERTO" }] };
       } else if (path === "/api/lotes/ensure") {
@@ -49,6 +51,8 @@ const { chromium } = require("playwright-core");
     await page.getByLabel("Contraseña", { exact: true }).fill("not-a-real-password");
     await page.getByRole("button", { name: "Iniciar sesión", exact: true }).click();
     await page.getByRole("button", { name: /Conteo de cajas/ }).waitFor();
+    assert.equal(await page.locator(".hero .who h1").textContent(), "Usuario de Prueba");
+    assert.ok((await page.locator(".hero .who p").textContent()).includes("@smoke"));
     await page.getByRole("button", { name: /Cambiar/ }).click();
     await page.locator('[data-code="SMOKE"]').click();
     await page.getByRole("button", { name: /Conteo de cajas/ }).click();

@@ -161,7 +161,7 @@ img { max-width: 100%; }
   box-shadow: 0 10px 24px rgba(34, 211, 168, 0.24);
 }
 .hero .who { min-width: 0; }
-.hero .who h1 { font-size: 1.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hero .who h1 { font-size: 1.15rem; overflow-wrap: anywhere; }
 .hero .who p { color: var(--muted); font-size: 0.85rem; }
 
 .tile-grid {
