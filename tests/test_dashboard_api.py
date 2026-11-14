@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy.orm import sessionmaker
@@ -111,6 +111,53 @@ def test_eficiencia_personal_computes_boxes_per_active_hour(client, seeded):
     # sesión 1: 2 cajas en 2 horas; sesión 2: 1 caja en 1 minuto (piso)
     assert abs(ana["horas_activas"] - (2.0 + 1.0 / 60.0)) < 0.01
     assert abs(ana["cajas_por_hora"] - (3.0 / (2.0 + 1.0 / 60.0))) < 0.05
+
+
+def test_eficiencia_personal_separa_horas_por_tarea_en_una_misma_sesion(client, session_factory, seeded):
+    """Una persona puede empacar y luego seleccionar en la misma sesión.
+
+    El tipo de QR define la tarea de cada lectura, así que las horas y el ritmo
+    deben calcularse por tarea y no sobre la sesión completa.
+    """
+    with session_factory() as db:
+        lot_a = db.get(Lote, seeded["lot_a"])
+        base = datetime(2026, 1, 7, 17, 0, tzinfo=timezone.utc)  # 12:00 en Lima
+        _make_scan(db, "m1", "33333333", lot_a.id, base, "10", session_uuid="mix-1")
+        _make_scan(db, "m2", "33333333", lot_a.id, base + timedelta(hours=1), "11", session_uuid="mix-1")
+        _make_scan(db, "m3", "33333333", lot_a.id, base + timedelta(hours=2), "AB", session_uuid="mix-1")
+        _make_scan(db, "m4", "33333333", lot_a.id, base + timedelta(hours=3), "AC", session_uuid="mix-1")
+        db.commit()
+
+    rows = client.get("/api/dashboard/eficiencia-personal").json()["rows"]
+    mixto = next(r for r in rows if r["dni"] == "33333333")
+    assert mixto["empacadas"] == 2 and mixto["seleccionadas"] == 2
+    assert mixto["total_cajas"] == 4
+    assert mixto["sesiones"] == 1 and mixto["dias_trabajados"] == 1
+    # Empacó de 12:00 a 13:00 y seleccionó de 14:00 a 15:00: 1 hora por tarea.
+    assert abs(mixto["horas_empacado"] - 1.0) < 0.01
+    assert abs(mixto["horas_seleccion"] - 1.0) < 0.01
+    assert abs(mixto["horas_activas"] - 3.0) < 0.01
+    assert abs(mixto["empacadas_por_hora"] - 2.0) < 0.05
+    assert abs(mixto["seleccionadas_por_hora"] - 2.0) < 0.05
+    assert abs(mixto["cajas_por_hora"] - (4.0 / 3.0)) < 0.05
+
+
+def test_eficiencia_personal_mantiene_a_quien_solo_selecciona(client, session_factory, seeded):
+    """Quien solo selecciona tiene empacadas=0 pero debe seguir apareciendo con
+    sus cajas y su ritmo de selección (el dashboard lo oculta si solo rankea empacadas)."""
+    with session_factory() as db:
+        lot_a = db.get(Lote, seeded["lot_a"])
+        base = datetime(2026, 1, 8, 17, 0, tzinfo=timezone.utc)  # 12:00 en Lima
+        _make_scan(db, "s1", "44444444", lot_a.id, base, "AA", session_uuid="sel-1")
+        _make_scan(db, "s2", "44444444", lot_a.id, base + timedelta(hours=1), "AB", session_uuid="sel-1")
+        db.commit()
+
+    rows = client.get("/api/dashboard/eficiencia-personal").json()["rows"]
+    selector = next(r for r in rows if r["dni"] == "44444444")
+    assert selector["empacadas"] == 0 and selector["seleccionadas"] == 2
+    assert selector["total_cajas"] == 2
+    assert abs(selector["horas_seleccion"] - 1.0) < 0.01
+    assert abs(selector["seleccionadas_por_hora"] - 2.0) < 0.05
 
 
 def test_eficiencia_por_dia_groups_rows(client, seeded):

@@ -35,7 +35,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent  # carpeta ui_web/
 ASSETS_DIR = BASE_DIR / "assets"
 
 API = os.getenv("API_URL", "http://127.0.0.1:8000/api")
-APP_VERSION = os.getenv("APP_VERSION", "v1.1.3")
+APP_VERSION = os.getenv("APP_VERSION", "v1.2.0")
 REMEMBER_LOGIN = os.getenv("REMEMBER_LOGIN", "1").strip().lower() not in ("0", "false", "no")
 REMEMBER_LOGIN_PERSISTENT = os.getenv("REMEMBER_LOGIN_PERSISTENT", "0").strip().lower() in ("1", "true", "yes")
 REFRESH_FALLBACK_ENABLED = os.getenv("REFRESH_FALLBACK_ENABLED", "0").strip().lower() in ("1", "true", "yes")
@@ -199,10 +199,10 @@ def try_restore_auth_from_refresh_cookie() -> None:
     st.session_state[FORCE_LOGOUT_KEY] = False
     _set_force_logout_file(False)
     new_refresh = (data.get("refresh_token") or "").strip()
-    if new_refresh:
-        _set_refresh_cookie(new_refresh)
-        if REFRESH_FALLBACK_ENABLED:
-            _save_refresh_token_to_disk(new_refresh)
+    if new_refresh and REFRESH_FALLBACK_ENABLED:
+        _save_refresh_token_to_disk(new_refresh)
+    # La cookie se reescribe en la sección autenticada, cuando el run termina
+    # normalmente: escribirla aquí y hacer st.rerun() puede descartar el iframe.
 
 
 LOGIN_IMG_B64 = _img_to_base64("logoappqr.png")
@@ -361,6 +361,13 @@ else:
     _clear_refresh_cookie()
     _clear_refresh_token_from_disk()
 
+# Borrado diferido de la cookie: se ejecuta en un run que termina normalmente.
+# Si se hiciera justo antes de st.rerun(), el iframe podría descartarse y la
+# cookie sobreviviría al logout (un F5 volvería a iniciar sesión).
+if st.session_state.pop("_pending_cookie_delete", False):
+    _clear_refresh_cookie()
+    _clear_refresh_token_from_disk()
+
 # --------------------------------------------------
 # LOGIN
 # --------------------------------------------------
@@ -406,10 +413,8 @@ if not st.session_state.auth:
                     _set_force_logout_file(False)
                     if REMEMBER_LOGIN:
                         refresh_token = (data.get("refresh_token") or "").strip()
-                        if refresh_token:
-                            _set_refresh_cookie(refresh_token)
-                            if REFRESH_FALLBACK_ENABLED:
-                                _save_refresh_token_to_disk(refresh_token)
+                        if refresh_token and REFRESH_FALLBACK_ENABLED:
+                            _save_refresh_token_to_disk(refresh_token)
                     st.session_state.pop("login_password", None)
                     # Inicializa selección impresora solo si falta
                     if "selected_printer_name" not in st.session_state:
@@ -424,6 +429,15 @@ if not st.session_state.auth:
 # --------------------------------------------------
 # SIDEBAR / USER
 # --------------------------------------------------
+# Cookie de sesión: se escribe en un run normal (nunca justo antes de un
+# st.rerun(), que puede descartar el iframe) y solo cuando el refresh token
+# cambia, para que un F5 restaure la sesión sin volver a pedir credenciales.
+if REMEMBER_LOGIN:
+    _refresh_for_cookie = (st.session_state.auth or {}).get("refresh_token")
+    if _refresh_for_cookie and st.session_state.get("_cookie_synced_token") != _refresh_for_cookie:
+        _set_refresh_cookie(_refresh_for_cookie)
+        st.session_state["_cookie_synced_token"] = _refresh_for_cookie
+
 # Monitor de inactividad: cierra la sesión tras N minutos sin teclado/mouse.
 if not st.session_state.get("_idle_watch_active"):
     st.iframe(inactivity_logout_script(INACTIVITY_LOGOUT_MINUTES), height=1)
@@ -456,8 +470,8 @@ if logout_clicked:
     _set_force_logout_file(True)
     st.session_state.pop("login_username", None)
     st.session_state.pop("login_password", None)
-    _clear_refresh_cookie()
-    _clear_refresh_token_from_disk()
+    st.session_state.pop("_cookie_synced_token", None)
+    st.session_state["_pending_cookie_delete"] = True
     st.rerun()
 
 st.markdown(f"### {title_for_section(selected_tab)}")

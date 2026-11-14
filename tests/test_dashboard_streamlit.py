@@ -1,6 +1,6 @@
 import sys
 from types import ModuleType
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from streamlit.testing.v1 import AppTest
@@ -119,6 +119,55 @@ def test_dashboard_is_lote_first_with_plecto_style_kpis(ui_api, client, session_
     at.selectbox(key="dashboard_lote").set_value(lote["codigo"])
     at = at.run(timeout=20)
     assert not at.exception
+
+
+def test_dashboard_selector_ranking_uses_qr_type_as_task(ui_api, client, session_factory, engine, user):
+    """El tipo de QR define la tarea: número = empacado, letra = selección.
+
+    Un trabajador que empaca y luego selecciona debe aparecer en ambos rankings;
+    el ranking de seleccionadores no puede quedar vacío por ordenar solo empacadas.
+    """
+    if engine.dialect.name != "postgresql":
+        pytest.skip("El dashboard requiere PostgreSQL")
+    lote = client.post("/api/lotes", json={"codigo": "DASH-SEL"}).json()
+    when = datetime(2026, 1, 5, 17, 0, tzinfo=timezone.utc).astimezone(timezone.utc).replace(tzinfo=None)
+    with session_factory() as db:
+        db.add(Trabajador(dni="33333333", nombre="CARLOS", apellido_paterno="QUISPE",
+                          apellido_materno=None, rol="EMPACADORA", num_orden=30,
+                          cod_letra="BDZ", activo=True))
+        # Primero empaca (número) y luego selecciona (letra), en la misma sesión.
+        for i, marker in enumerate(["30", "BDZ", "BDZ", "BDZ"]):
+            db.add(ScanEvent(token=f"sel{i}", dni="33333333", lote_id=lote["id"],
+                             scanned_at=when + timedelta(minutes=10 * i),
+                             raw={"id": marker, "p": "PALTA"},
+                             user_id="op1", session_uuid="s-sel"))
+        db.commit()
+
+    user["rol"] = "SUPERVISOR"
+    ui_api.ROLE = "SUPERVISOR"
+    at = AppTest.from_string(SCRIPT).run(timeout=20)
+    assert not at.exception
+    at = _run_with_dates(at, date(2026, 1, 5))
+
+    radio = at.radio(key="dash_ranking_rol")
+    assert radio.value == "Empacadoras"
+    assert "Cajas empacadas por persona" in "\n".join(m.value for m in at.markdown)
+
+    radio.set_value("Seleccionadores")
+    at = at.run(timeout=20)
+    assert not at.exception
+    joined = "\n".join(m.value for m in at.markdown)
+    assert "Cajas seleccionadas por persona" in joined
+    assert "3</b> seleccionadas" in joined
+    assert "Cajas empacadas por persona" not in joined
+
+    # La tabla completa conserva ambas tareas y el rol registrado.
+    eff_table = next(df.value for df in at.dataframe if "persona" in df.value.columns)
+    assert "rol_registrado" in eff_table.columns
+    assert {"horas_empacado", "horas_seleccion", "seleccionadas_por_hora"} <= set(eff_table.columns)
+    carlos = eff_table[eff_table["dni"] == "33333333"].iloc[0]
+    assert carlos["empacadas"] == 1 and carlos["seleccionadas"] == 3
+    assert carlos["total_cajas"] == 4
 
 
 def test_dashboard_empty_range_shows_info(ui_api, client, engine, user):

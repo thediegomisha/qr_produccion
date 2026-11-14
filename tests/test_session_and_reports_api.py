@@ -43,6 +43,12 @@ def test_read_refresh_cookie_returns_token_and_handles_missing_context():
     assert read_refresh_cookie(_Broken()) is None
 
 
+def test_read_refresh_cookie_acepta_la_cookie_antigua_entrecomillada():
+    """Antes el nombre se escribía entre comillas: el navegador guardaba
+    `"qr_refresh_token"`. Debe seguir leyéndose para no perder la sesión."""
+    assert read_refresh_cookie(_fake_st({'"qr_refresh_token"': "abc.def"})) == "abc.def"
+
+
 def test_set_and_delete_cookie_scripts_target_parent_window():
     set_js = set_cookie_script("tok-123")
     assert COOKIE_NAME in set_js and "tok-123" in set_js
@@ -56,6 +62,20 @@ def test_set_and_delete_cookie_scripts_target_parent_window():
     delete_js = delete_cookie_script()
     assert "Max-Age=0" in delete_js
     assert COOKIE_NAME in delete_js
+
+
+def test_set_cookie_script_no_entrecomilla_el_nombre_de_la_cookie():
+    """Regresión: `"qr_refresh_token"=...` crea una cookie cuyo nombre incluye
+    comillas, así que `st.context.cookies.get("qr_refresh_token")` nunca la
+    encuentra y la sesión se pierde al refrescar (F5)."""
+    js = set_cookie_script("tok-123")
+    assert "qr_refresh_token=tok-123" in js
+    assert '"qr_refresh_token"' not in js
+
+    # El borrado limpia tanto el nombre correcto como el antiguo entrecomillado.
+    delete_js = delete_cookie_script()
+    assert "qr_refresh_token=" in delete_js
+    assert '\\"qr_refresh_token\\"=' in delete_js
 
 
 def test_inactivity_monitor_watches_user_activity_and_expires_session():

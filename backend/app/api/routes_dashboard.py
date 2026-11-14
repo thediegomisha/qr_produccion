@@ -89,7 +89,8 @@ def eficiencia_personal(
     date_from = _clean_optional(date_from)
     date_to = _clean_optional(date_to)
 
-    # Eficiencia: cajas por hora activa en la sesión (primera a última lectura por sesión+día).
+    # Eficiencia por tarea: cada persona puede empacar y seleccionar en la misma
+    # sesión, así que las horas activas se calculan por separado para cada tarea.
     sql = text("""
         WITH base AS (
             SELECT
@@ -118,40 +119,66 @@ def eficiencia_personal(
                 MAX(scanned_at) AS ultima
             FROM base
             GROUP BY dni, user_id, session_uuid, dia
+        ),
+        por_persona AS (
+            SELECT
+                dni,
+                COUNT(*)::int AS sesiones,
+                SUM(cajas)::int AS total_cajas,
+                SUM(empacadas)::int AS empacadas,
+                SUM(seleccionadas)::int AS seleccionadas,
+                COUNT(DISTINCT dia)::int AS dias_trabajados,
+                SUM(
+                    CASE WHEN EXTRACT(EPOCH FROM (ultima - primera))::float / 3600 <= 0
+                         THEN 1.0 / 60.0
+                         ELSE EXTRACT(EPOCH FROM (ultima - primera))::float / 3600
+                    END
+                ) AS horas_activas
+            FROM sesiones
+            GROUP BY dni
+        ),
+        tareas AS (
+            SELECT
+                dni,
+                es_empacador,
+                SUM(
+                    CASE WHEN EXTRACT(EPOCH FROM (ultima - primera))::float / 3600 <= 0
+                         THEN 1.0 / 60.0
+                         ELSE EXTRACT(EPOCH FROM (ultima - primera))::float / 3600
+                    END
+                ) AS horas
+            FROM (
+                SELECT
+                    dni,
+                    session_uuid,
+                    dia,
+                    es_empacador,
+                    MIN(scanned_at) AS primera,
+                    MAX(scanned_at) AS ultima
+                FROM base
+                GROUP BY dni, session_uuid, dia, es_empacador
+            ) tarea_sesion
+            GROUP BY dni, es_empacador
         )
         SELECT
-            s.dni,
+            p.dni,
             COALESCE(NULLIF(TRIM(t.apellido_paterno || ' ' || COALESCE(t.apellido_materno, '') || ' ' || COALESCE(t.nombre, '')), ''), 'SIN REGISTRO') AS persona,
             COALESCE(t.rol, 'DESCONOCIDO') AS rol_trabajador,
-            COUNT(*)::int AS sesiones,
-            SUM(s.cajas)::int AS total_cajas,
-            SUM(s.empacadas)::int AS empacadas,
-            SUM(s.seleccionadas)::int AS seleccionadas,
-            COUNT(DISTINCT s.dia)::int AS dias_trabajados,
-            ROUND(SUM(
-                CASE WHEN EXTRACT(EPOCH FROM (s.ultima - s.primera))::float / 3600 <= 0
-                     THEN 1.0 / 60.0
-                     ELSE EXTRACT(EPOCH FROM (s.ultima - s.primera))::float / 3600
-                END
-            )::numeric, 2)::float AS horas_activas,
-            ROUND((
-                CASE WHEN SUM(
-                    CASE WHEN EXTRACT(EPOCH FROM (s.ultima - s.primera))::float / 3600 <= 0
-                         THEN 1.0 / 60.0
-                         ELSE EXTRACT(EPOCH FROM (s.ultima - s.primera))::float / 3600
-                    END
-                ) > 0
-                THEN SUM(s.cajas)::float / SUM(
-                    CASE WHEN EXTRACT(EPOCH FROM (s.ultima - s.primera))::float / 3600 <= 0
-                         THEN 1.0 / 60.0
-                         ELSE EXTRACT(EPOCH FROM (s.ultima - s.primera))::float / 3600
-                    END
-                )
-                ELSE 0 END
-            )::numeric, 1)::float AS cajas_por_hora
-        FROM sesiones s
-        LEFT JOIN trabajadores t ON TRIM(t.dni) = TRIM(s.dni) AND t.activo = true
-        GROUP BY s.dni, persona, rol_trabajador
+            p.sesiones,
+            p.total_cajas,
+            p.empacadas,
+            p.seleccionadas,
+            p.dias_trabajados,
+            ROUND(p.horas_activas::numeric, 2)::float AS horas_activas,
+            ROUND(COALESCE(te.horas, 0)::numeric, 2)::float AS horas_empacado,
+            ROUND(COALESCE(ts.horas, 0)::numeric, 2)::float AS horas_seleccion,
+            COALESCE(ROUND((p.total_cajas::float / NULLIF(p.horas_activas, 0))::numeric, 1)::float, 0) AS cajas_por_hora,
+            COALESCE(ROUND((p.empacadas::float / NULLIF(te.horas, 0))::numeric, 1)::float, 0) AS empacadas_por_hora,
+            COALESCE(ROUND((p.seleccionadas::float / NULLIF(ts.horas, 0))::numeric, 1)::float, 0) AS seleccionadas_por_hora
+        FROM por_persona p
+        LEFT JOIN tareas te ON te.dni = p.dni AND te.es_empacador = true
+        LEFT JOIN tareas ts ON ts.dni = p.dni AND ts.es_empacador = false
+        LEFT JOIN trabajadores t ON TRIM(t.dni) = TRIM(p.dni) AND t.activo = true
         ORDER BY total_cajas DESC
     """)
 

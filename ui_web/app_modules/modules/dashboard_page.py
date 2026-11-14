@@ -11,6 +11,7 @@ import pandas as pd
 # la SELECCIÓN es un concepto distinto y se muestra como referencia.
 _COLOR_EMPACADAS = "#00b3f4"
 _COLOR_SELECCION = "#ffe08a"  # ámbar claro: visible pero secundario
+_COLOR_SELECCION_BAR = "#ffb100"  # ámbar fuerte para el ranking de selección
 _COLOR_KPI = ["#00b3f4", "#ffb100", "#9947ff", "#58cf42", "#ff4747"]
 _MEDALS = ["🥇", "🥈", "🥉"]
 _LEADER_COLORS = ["#FFD700", "#C0C0C0", "#CD7F32"]
@@ -64,9 +65,18 @@ def _kpi_card(label: str, value, color: str) -> str:
     )
 
 
-def _leaderboard_html(top: pd.DataFrame, limit: int = 10) -> str:
-    """Ranking estilo Plecto priorizando las cajas EMPACADAS (base de pallets);
-    la selección se muestra como referencia secundaria."""
+def _leaderboard_html(
+    top: pd.DataFrame,
+    limit: int = 10,
+    metric: str = "empacadas",
+    metric_label: str = "empacadas",
+    reference: str = "seleccionadas",
+    reference_label: str = "selección",
+    rate: str = "empacadas_por_hora",
+) -> str:
+    """Ranking estilo Plecto para la tarea elegida (empacado o selección).
+    Una misma persona puede aparecer en ambos rankings: el tipo de QR define
+    la tarea de cada lectura, no el rol registrado del trabajador."""
     rows = []
     for rank, entry in enumerate(top.head(limit).itertuples()):
         medal = _MEDALS[rank] if rank < len(_MEDALS) else f"<b>{rank + 1}</b>"
@@ -77,9 +87,9 @@ def _leaderboard_html(top: pd.DataFrame, limit: int = 10) -> str:
             f'background: {color}12; border-left: 4px solid {color};">'
             f'<div style="font-size: 15px;"><span style="margin-right: 8px;">{medal}</span>{entry.persona}</div>'
             f'<div style="font-size: 14px; color: #444;">'
-            f'<b style="font-size: 17px; color: {color};">{entry.empacadas}</b> empacadas'
-            f'&nbsp;·&nbsp; <span style="color:#888;">{entry.seleccionadas} selección</span>'
-            f'&nbsp;·&nbsp; {entry.cajas_por_hora}/h</div>'
+            f'<b style="font-size: 17px; color: {color};">{getattr(entry, metric)}</b> {metric_label}'
+            f'&nbsp;·&nbsp; <span style="color:#888;">{getattr(entry, reference)} {reference_label}</span>'
+            f'&nbsp;·&nbsp; {getattr(entry, rate)}/h</div>'
             f'</div>'
         )
     return "".join(rows)
@@ -367,7 +377,7 @@ def render(
                     f"con {int(mejor['empacadas'])} cajas empacadas."
                 )
 
-        # ---------- 4. Eficiencia: ranking por EMPACADAS ----------
+        # ---------- 4. Eficiencia: ranking por TAREA (empacado o selección) ----------
         st.divider()
         st.markdown("### Eficiencia del personal")
         if df_eff.empty:
@@ -375,35 +385,77 @@ def render(
             return
 
         st.caption(
-            "Ranking por cajas empacadas — la base para formar pallets. La selección se "
-            "muestra como referencia. Eficiencia = cajas por hora activa (primera a última "
-            "lectura de cada sesión, mínimo 1 minuto)."
+            "El tipo de QR define la tarea de cada lectura: **número = empacado**, "
+            "**letra = selección**. Una misma persona puede aparecer en ambos rankings "
+            "si durante la jornada empacó y luego seleccionó. Eficiencia = cajas por hora "
+            "activa de esa tarea (primera a última lectura de cada bloque de tarea, "
+            "mínimo 1 minuto)."
         )
-        top = df_eff.sort_values("empacadas", ascending=False).reset_index(drop=True)
-        top["empacadas_por_hora"] = (top["empacadas"] / top["horas_activas"]).round(1)
-        st.markdown(_leaderboard_html(top), unsafe_allow_html=True)
 
-        st.markdown("#### Cajas empacadas por persona")
-        chart_cajas = (
-            alt.Chart(top)
-            .mark_bar(color=_COLOR_EMPACADAS)
-            .encode(
-                x=alt.X("persona:N", sort="-y", title="Trabajador", axis=alt.Axis(labelAngle=-30)),
-                y=alt.Y("empacadas:Q", title="Cajas empacadas"),
-                tooltip=["persona:N", "empacadas:Q", "seleccionadas:Q", "total_cajas:Q"],
+        rol_ranking = st.radio(
+            "Ranking de",
+            ["Empacadoras", "Seleccionadores"],
+            horizontal=True,
+            key="dash_ranking_rol",
+        )
+        if rol_ranking == "Empacadoras":
+            metric, metric_label = "empacadas", "empacadas"
+            reference, reference_label = "seleccionadas", "selección"
+            rate, color = "empacadas_por_hora", _COLOR_EMPACADAS
+            chart_title, y_title = "Cajas empacadas por persona", "Cajas empacadas"
+        else:
+            metric, metric_label = "seleccionadas", "seleccionadas"
+            reference, reference_label = "empacadas", "empacadas"
+            rate, color = "seleccionadas_por_hora", _COLOR_SELECCION_BAR
+            chart_title, y_title = "Cajas seleccionadas por persona", "Cajas seleccionadas"
+
+        # Solo quien realizó esa tarea entra al ranking: así el seleccionador no
+        # queda oculto detrás de las empacadoras (que tienen más volumen).
+        ranking = (
+            df_eff[df_eff[metric] > 0]
+            .sort_values(metric, ascending=False)
+            .reset_index(drop=True)
+        )
+        if ranking.empty:
+            st.info(f"Sin cajas {metric_label} en el rango seleccionado.")
+        else:
+            st.markdown(
+                _leaderboard_html(
+                    ranking,
+                    metric=metric,
+                    metric_label=metric_label,
+                    reference=reference,
+                    reference_label=reference_label,
+                    rate=rate,
+                ),
+                unsafe_allow_html=True,
             )
-            .properties(height=300)
-        )
-        st.altair_chart(chart_cajas, width="stretch")
 
-        st.dataframe(
-            top[[
-                "dni", "persona", "rol_trabajador", "empacadas", "seleccionadas", "total_cajas",
-                "dias_trabajados", "sesiones", "horas_activas", "cajas_por_hora",
-            ]],
-            hide_index=True,
-            width="stretch",
+            st.markdown(f"#### {chart_title}")
+            chart_cajas = (
+                alt.Chart(ranking.head(15))
+                .mark_bar(color=color)
+                .encode(
+                    x=alt.X("persona:N", sort="-y", title="Trabajador", axis=alt.Axis(labelAngle=-30)),
+                    y=alt.Y(f"{metric}:Q", title=y_title),
+                    tooltip=["persona:N", f"{metric}:Q", f"{rate}:Q", "total_cajas:Q"],
+                )
+                .properties(height=300)
+            )
+            st.altair_chart(chart_cajas, width="stretch")
+
+        # Tabla completa (ambas tareas) para ver quién cambió de tarea en la jornada.
+        personal_cols = [
+            "dni", "persona", "rol_trabajador", "empacadas", "seleccionadas", "total_cajas",
+            "dias_trabajados", "sesiones", "horas_activas", "horas_empacado", "horas_seleccion",
+            "empacadas_por_hora", "seleccionadas_por_hora", "cajas_por_hora",
+        ]
+        tabla_personal = (
+            df_eff.sort_values("total_cajas", ascending=False)
+            .reset_index(drop=True)[personal_cols]
+            .rename(columns={"rol_trabajador": "rol_registrado"})
         )
+        st.dataframe(tabla_personal, hide_index=True, width="stretch")
 
         # ---------- 5. Exportar dashboard ----------
         st.divider()
@@ -427,8 +479,7 @@ def render(
                 per_lot_export = per_lot[["lote", "empacadas", "seleccionadas", "total"]].sort_values("empacadas", ascending=False)
                 per_lot_export.to_excel(writer, sheet_name="Por lote", index=False)
                 if not df_eff.empty:
-                    top_export = top[["dni", "persona", "rol_trabajador", "empacadas", "seleccionadas", "total_cajas", "dias_trabajados", "horas_activas", "cajas_por_hora"]]
-                    top_export.to_excel(writer, sheet_name="Por persona", index=False)
+                    tabla_personal.to_excel(writer, sheet_name="Por persona", index=False)
             st.download_button(
                 "⬇️ Exportar a Excel",
                 data=buf.getvalue(),
@@ -439,7 +490,7 @@ def render(
         with c_print:
             tables = [("Cajas empacadas por lote", per_lot[["lote", "empacadas", "seleccionadas", "total"]].sort_values("empacadas", ascending=False))]
             if not df_eff.empty:
-                tables.append(("Eficiencia del personal", top[["persona", "rol_trabajador", "empacadas", "seleccionadas", "total_cajas", "cajas_por_hora"]]))
+                tables.append(("Eficiencia del personal", tabla_personal))
             if not df_horas.empty:
                 tables.append(("Ritmo por hora", df_horas[["hora", "empacadas", "seleccionadas", "total"]]))
             print_button(
@@ -447,7 +498,7 @@ def render(
                 "Dash", st,
             )
 
-        # ---------- 5. Actividad reciente ----------
+        # ---------- 6. Actividad reciente ----------
         st.divider()
         st.markdown("### Actividad reciente")
         if df_recientes.empty:

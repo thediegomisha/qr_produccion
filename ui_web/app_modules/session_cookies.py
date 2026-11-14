@@ -8,6 +8,10 @@ Reemplaza al CookieManager de extra-streamlit-components:
 import json
 
 COOKIE_NAME = "qr_refresh_token"
+# Versiones anteriores escribían el nombre entre comillas (`"qr_refresh_token"`),
+# así que el navegador guardaba un nombre literal con comillas. Se sigue leyendo
+# y borrando para no dejar cookies huérfanas tras la corrección.
+LEGACY_QUOTED_COOKIE_NAME = f'"{COOKIE_NAME}"'
 _STORAGE_KEY = "qr_last_activity"
 _GUARD_FLAG = "__qrIdleWatch"
 
@@ -16,28 +20,38 @@ def read_refresh_cookie(st_module) -> str | None:
     """Lee la cookie de refresco con el API nativa; None si no existe."""
     try:
         cookies = st_module.context.cookies or {}
-        value = cookies.get(COOKIE_NAME)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
+        for name in (COOKIE_NAME, LEGACY_QUOTED_COOKIE_NAME):
+            value = cookies.get(name)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
     except Exception:
         return None
     return None
 
 
 def set_cookie_script(token: str, max_age_days: int | None = None) -> str:
-    """JS que escribe la cookie en la ventana padre (sesión o persistente)."""
-    parts = json.dumps(COOKIE_NAME) + "=" + json.dumps(token) + "; path=/; SameSite=Lax"
+    """JS que escribe la cookie en la ventana padre (sesión o persistente).
+
+    El nombre de la cookie va SIN comillas: si se entrecomilla, el navegador
+    crea una cookie llamada `"qr_refresh_token"` (con comillas en el nombre) y
+    `st.context.cookies` nunca la encuentra, por lo que la sesión no sobrevive
+    a un F5. El valor (JWT) solo usa caracteres seguros, así que tampoco
+    necesita comillas.
+    """
+    token = (token or "").strip()
+    parts = f"{COOKIE_NAME}={token}; path=/; SameSite=Lax"
     if max_age_days:
         parts += f"; Max-Age={int(max_age_days) * 86400}"
     return f"<script>window.parent.document.cookie = {json.dumps(parts)};</script>"
 
 
 def delete_cookie_script() -> str:
-    """JS que borra la cookie de refresco en la ventana padre."""
-    return (
-        f"<script>window.parent.document.cookie = {json.dumps(COOKIE_NAME)}=; "
-        "Max-Age=0; path=/; SameSite=Lax;</script>"
-    )
+    """JS que borra la cookie de refresco (nombre actual y el antiguo entrecomillado)."""
+    statements = []
+    for name in (COOKIE_NAME, LEGACY_QUOTED_COOKIE_NAME):
+        parts = f"{name}=; Max-Age=0; path=/; SameSite=Lax"
+        statements.append(f"window.parent.document.cookie = {json.dumps(parts)};")
+    return "<script>" + " ".join(statements) + "</script>"
 
 
 def inactivity_logout_script(idle_minutes: int) -> str:
@@ -54,6 +68,7 @@ def inactivity_logout_script(idle_minutes: int) -> str:
   var IDLE_MS = {idle_ms};
   var KEY = {json.dumps(_STORAGE_KEY)};
   var COOKIE = {json.dumps(COOKIE_NAME)};
+  var LEGACY = {json.dumps(LEGACY_QUOTED_COOKIE_NAME)};
   function readLast() {{
     var v = parseInt(P.localStorage.getItem(KEY) || '0', 10);
     return v > 0 ? v : Date.now();
@@ -73,7 +88,10 @@ def inactivity_logout_script(idle_minutes: int) -> str:
   }});
   setInterval(function () {{
     if (Date.now() - readLast() > IDLE_MS) {{
-      try {{ P.document.cookie = COOKIE + '=; Max-Age=0; path=/; SameSite=Lax'; }} catch (e) {{}}
+      try {{
+        P.document.cookie = COOKIE + '=; Max-Age=0; path=/; SameSite=Lax';
+        P.document.cookie = LEGACY + '=; Max-Age=0; path=/; SameSite=Lax';
+      }} catch (e) {{}}
       P.location.reload();  // sin cookie -> la app muestra el login
     }}
   }}, 30000);
