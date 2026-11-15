@@ -17,6 +17,7 @@ const { chromium } = require("playwright-core");
     const errors = [];
     page.on("pageerror", error => errors.push(error.message));
     let refreshes = 0;
+    let reportQueries = 0;
     const access = () => `e30.${Buffer.from(JSON.stringify({
       sub: "smoke", rol: "ROOT", exp: Math.floor(Date.now() / 1000) + 3600,
     })).toString("base64url")}.test`;
@@ -38,7 +39,8 @@ const { chromium } = require("playwright-core");
         const batch = request.postDataJSON();
         body = { batch_uuid: batch.batch_uuid, accepted_count: batch.scans.length, duplicate_count: 0 };
       } else if (path.startsWith("/api/reports/")) {
-        body = { totals: { total_lecturas: 3 }, rows: [] };
+        reportQueries++;
+        body = { totals: { total_lecturas: reportQueries === 1 ? 3 : 4 }, rows: [] };
       } else if (path.startsWith("/api/vigilancia/")) {
         body = { found: true, dni: "12345678", nombres: "PERSONA", apellido_paterno: "PRUEBA" };
       } else {
@@ -85,6 +87,18 @@ const { chromium } = require("playwright-core");
     await page.getByRole("button", { name: /^Reportes/ }).click();
     await page.waitForFunction(() => document.querySelector("#loteSel")?.options.length > 1);
     assert.ok(refreshes > 0, "Refresh was requested after access token expired");
+    await page.getByLabel("Lote (obligatorio)").selectOption("SMOKE");
+    await page.getByRole("button", { name: "Consultar", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector(".stat.total .num")?.textContent === "3");
+    await page.waitForFunction(() => document.querySelector(".stat.total .num")?.textContent === "4", { }, { timeout: 15000 });
+    assert.ok(reportQueries >= 2, "Open report must refresh without pressing Consultar again");
+    await page.evaluate(() => {
+      localStorage.setItem("qr.role", "OPERADOR");
+      location.hash = "#/menu";
+    });
+    await page.getByRole("button", { name: /^Reportes/ }).waitFor();
+    await page.getByRole("button", { name: /^Reportes/ }).click();
+    await page.locator("#loteSel").waitFor();
 
     // Wait for shell activation, then reload with all HTTP disabled.
     await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller));

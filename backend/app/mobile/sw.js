@@ -4,7 +4,7 @@
    - Nunca cachea respuestas de la API.
    ============================================================ */
 
-const VERSION = "1.1.1";
+const VERSION = "1.1.2";
 const CACHE = `qrlector-pwa-${VERSION}`;
 const SCOPE = new URL("./", self.location.href).pathname;
 

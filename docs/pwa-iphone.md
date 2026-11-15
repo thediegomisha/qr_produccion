@@ -34,6 +34,11 @@ Para cámara en LAN se necesita HTTPS con certificado confiable para el iPhone.
 - Lotes: selección y creación; cierre según permisos; reapertura solo ROOT.
 - Historial local: pendientes, enviados y recibos de envíos con duplicados.
 - Reportes por DNI, empacador y seleccionador; fechas inclusivas en hora Perú.
+- Reportes consolidados del lote para todos los roles, sin filtro implícito por
+  el usuario que consulta. Tras **Consultar**, la PWA y la APK 1.2.2 refrescan
+  cada 10 segundos mientras el reporte está abierto/en primer plano. No es
+  push instantáneo: solo incluye lecturas confirmadas por el servidor.
+  Comparar siempre el mismo lote, producto y rango de fechas entre equipos.
 - Consultas por DNI.
 - Vigilancia: Code 39 o QR con DNI; entrada/salida y registro manual de personas.
 - Menú por rol, siguiendo la APK. El backend sigue siendo responsable de autorizar peticiones.

@@ -40,8 +40,8 @@ const FEATURES = {
   ROOT: ["CONTEO", "HISTORIAL", "REPORTES", "INGRESO", "CONSULTAS", "LOTE_SET", "LOTE_CLOSE", "LOTE_OPEN"],
   GERENCIA: ["CONTEO", "HISTORIAL", "REPORTES", "INGRESO", "CONSULTAS", "LOTE_SET", "LOTE_CLOSE", "LOTE_OPEN"],
   SUPERVISOR: ["CONTEO", "HISTORIAL", "REPORTES", "LOTE_SET", "LOTE_CLOSE"],
-  OPERADOR: ["CONTEO", "HISTORIAL", "LOTE_SET"],
-  VIGILANCIA: ["INGRESO", "CONSULTAS"],
+  OPERADOR: ["CONTEO", "HISTORIAL", "LOTE_SET", "REPORTES"],
+  VIGILANCIA: ["INGRESO", "CONSULTAS", "REPORTES"],
 };
 
 const state = {
@@ -1017,14 +1017,57 @@ async function renderReportes() {
         <button class="btn primary block" id="btnConsultar">Consultar</button>
       </div>
       <div id="reportResult" class="mt-14"></div>
+      <p id="reportLive" class="muted small mt-8" role="status">Producción consolidada de todos los operadores. Refresco cada 10 s tras consultar.</p>
     </main>`;
 
   const select = document.getElementById("loteSel");
   const result = document.getElementById("reportResult");
   const button = document.getElementById("btnConsultar");
+  const live = document.getElementById("reportLive");
+  let disposed = false;
+  let inFlight = false;
+  let activeFilters = null;
+  const update = async (manual = false) => {
+    if (disposed || inFlight || !activeFilters) return;
+    inFlight = true;
+    const filters = { ...activeFilters };
+    if (manual) {
+      button.disabled = true;
+      button.innerHTML = `<span class="spinner"></span> Consultando…`;
+    }
+    try {
+      const data = await api.dniSummary(filters);
+      if (disposed) return;
+      result.innerHTML = renderReport(data);
+      live.textContent = `Todos los operadores · Actualizado ${new Date().toLocaleTimeString("es-PE")} · Refresco cada 10 s`;
+    } catch (err) {
+      if (disposed) return;
+      if (!handleAuthError(err)) {
+        live.textContent = "No se pudo actualizar. Se reintentará en 10 s; los datos anteriores pueden estar desactualizados.";
+        if (manual) toast(err.message, "error");
+      }
+    } finally {
+      inFlight = false;
+      if (!disposed) {
+        button.disabled = false;
+        button.textContent = "Consultar";
+      }
+    }
+  };
+  const timer = setInterval(() => {
+    if (document.visibilityState === "visible") update();
+  }, 10000);
+  const onVisible = () => { if (document.visibilityState === "visible") update(); };
+  document.addEventListener("visibilitychange", onVisible);
+  state.cleanup = () => {
+    disposed = true;
+    clearInterval(timer);
+    document.removeEventListener("visibilitychange", onVisible);
+  };
 
   try {
     const data = await api.listLotes({ limit: 200 });
+    if (disposed) return;
     const items = data?.items || [];
     select.innerHTML = `<option value="">SELECCIONE LOTE…</option>` + items.map((lote) => {
       const estado = String(lote.estado || "ABIERTO").toUpperCase();
@@ -1040,7 +1083,7 @@ async function renderReportes() {
     }
   }
 
-  button.addEventListener("click", async () => {
+  button.addEventListener("click", () => {
     const lote = select.value.trim();
     if (!lote) { toast("Selecciona un lote antes de consultar", "warn"); return; }
     const desde = document.getElementById("desde").value;
@@ -1048,26 +1091,13 @@ async function renderReportes() {
     if (!desde || !hasta) { toast("Indica ambas fechas", "warn"); return; }
     if (hasta < desde) { toast("La fecha final debe ser mayor o igual a la inicial", "warn"); return; }
 
-    button.disabled = true;
-    button.innerHTML = `<span class="spinner"></span> Consultando…`;
-    result.innerHTML = "";
-    try {
-      const data = await api.dniSummary({
+    activeFilters = {
         lote_codigo: lote,
         producto: document.getElementById("producto").value.trim() || undefined,
         date_from: desde,
         date_to: hasta,
-      });
-      result.innerHTML = renderReport(data);
-    } catch (err) {
-      if (!handleAuthError(err)) {
-        result.innerHTML = emptyBox(err.message || "No se pudo consultar");
-        toast(err.message, "error");
-      }
-    } finally {
-      button.disabled = false;
-      button.textContent = "Consultar";
-    }
+    };
+    update(true);
   });
 }
 

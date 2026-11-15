@@ -76,18 +76,13 @@ def _to_dt(s: str) -> datetime:
 
 
 def _effective_user_filter(user, requested_user_id: Optional[str]) -> Optional[str]:
-    """
-    - ROOT/SUPERVISOR: pueden filtrar por cualquier user_id o dejar None (todos)
-    - Otros: forzar a su propio usuario
-    """
-    rol = (user.get("rol") or "").upper()
-    me = (user.get("usuario") or "").strip()
+    """Production reports are shared across authenticated users.
 
-    if rol in ("ROOT", "SUPERVISOR"):
-        ru = (requested_user_id or "").strip()
-        return ru if ru else None
-
-    return me if me else None
+    Only an explicitly requested operator filter narrows the consolidated lot.
+    The caller's identity must never silently change the totals.
+    """
+    requested = (requested_user_id or "").strip()
+    return requested or None
 
 
 def _clean_optional(s: Optional[str]) -> Optional[str]:
@@ -126,7 +121,7 @@ def _resolve_lote(db, lote_codigo: Optional[str]) -> Tuple[Optional[int], Option
 @router.get("/dni-summary")
 def dni_summary(
     producto: Optional[str] = Query(None, description="Ej: UVA"),
-    scanned_by: Optional[str] = Query(None, description="user_id que escaneó (solo ROOT/SUPERVISOR)"),
+    scanned_by: Optional[str] = Query(None, description="Filtro opcional por operador; omitido incluye todos"),
     lote_codigo: Optional[str] = Query(None, description="Código de lote, ej: 1234-2026"),
     date_from: Optional[str] = Query(None, description="AAAA-MM-DD (hora Perú)"),
     date_to: Optional[str] = Query(None, description="AAAA-MM-DD (hora Perú)"),
@@ -270,4 +265,3 @@ def operator_summary(
         "date_to": date_to,
         "rows": [dict(r) for r in rows],
     }
-
