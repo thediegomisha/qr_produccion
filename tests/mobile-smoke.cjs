@@ -39,8 +39,13 @@ const { chromium } = require("playwright-core");
         const batch = request.postDataJSON();
         body = { batch_uuid: batch.batch_uuid, accepted_count: batch.scans.length, duplicate_count: 0 };
       } else if (path.startsWith("/api/reports/")) {
+        assert.ok(!new URL(request.url()).searchParams.has("date_from"));
+        assert.ok(!new URL(request.url()).searchParams.has("date_to"));
         reportQueries++;
-        body = { totals: { total_lecturas: reportQueries === 1 ? 3 : 4 }, rows: [] };
+        body = {
+          totals: { total_lecturas: reportQueries === 1 ? 3 : 4 },
+          rows: [{ persona: "ANA PEREZ", dni: "12345678", codigo: "007", empacador: 3, seleccionador: 0, total: 3 }],
+        };
       } else if (path.startsWith("/api/vigilancia/")) {
         body = { found: true, dni: "12345678", nombres: "PERSONA", apellido_paterno: "PRUEBA" };
       } else {
@@ -90,6 +95,8 @@ const { chromium } = require("playwright-core");
     await page.getByLabel("Lote (obligatorio)").selectOption("SMOKE");
     await page.getByRole("button", { name: "Consultar", exact: true }).click();
     await page.waitForFunction(() => document.querySelector(".stat.total .num")?.textContent === "3");
+    assert.ok((await page.locator("table.report").textContent()).includes("Código"));
+    assert.ok((await page.locator("table.report").textContent()).includes("007"));
     await page.waitForFunction(() => document.querySelector(".stat.total .num")?.textContent === "4", { }, { timeout: 15000 });
     assert.ok(reportQueries >= 2, "Open report must refresh without pressing Consultar again");
     await page.evaluate(() => {

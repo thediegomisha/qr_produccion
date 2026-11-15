@@ -167,6 +167,11 @@ def dni_summary(
         ),
         'SIN REGISTRO'
       ) AS persona,
+      COALESCE(
+        STRING_AGG(DISTINCT NULLIF(TRIM(se.raw->>'id'), ''), ', '
+                   ORDER BY NULLIF(TRIM(se.raw->>'id'), '')),
+        ''
+      ) AS codigo,
       COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[0-9]') AS empacador,
       COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[A-Za-z]') AS seleccionador,
       COUNT(*) AS total

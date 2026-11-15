@@ -987,7 +987,6 @@ function emptyBox(message) {
 /* ------------------------------- Reportes ----------------------------- */
 async function renderReportes() {
   if (!can("REPORTES")) { go("menu"); return; }
-  const today = todayLima();
 
   app.innerHTML = `
     <header class="topbar">
@@ -1004,16 +1003,7 @@ async function renderReportes() {
           <label for="producto">Producto (opcional)</label>
           <input class="input" id="producto" placeholder="Ej. UVA" autocapitalize="characters" spellcheck="false">
         </div>
-        <div class="btn-row">
-          <div class="field" style="flex:1">
-            <label for="desde">Desde</label>
-            <input class="input" type="date" id="desde" value="${today}">
-          </div>
-          <div class="field" style="flex:1">
-            <label for="hasta">Hasta</label>
-            <input class="input" type="date" id="hasta" value="${today}">
-          </div>
-        </div>
+        <p class="muted small" style="margin-bottom:12px">Incluye toda la producción del lote, sin límite de fechas.</p>
         <button class="btn primary block" id="btnConsultar">Consultar</button>
       </div>
       <div id="reportResult" class="mt-14"></div>
@@ -1086,16 +1076,10 @@ async function renderReportes() {
   button.addEventListener("click", () => {
     const lote = select.value.trim();
     if (!lote) { toast("Selecciona un lote antes de consultar", "warn"); return; }
-    const desde = document.getElementById("desde").value;
-    const hasta = document.getElementById("hasta").value;
-    if (!desde || !hasta) { toast("Indica ambas fechas", "warn"); return; }
-    if (hasta < desde) { toast("La fecha final debe ser mayor o igual a la inicial", "warn"); return; }
 
     activeFilters = {
         lote_codigo: lote,
         producto: document.getElementById("producto").value.trim() || undefined,
-        date_from: desde,
-        date_to: hasta,
     };
     update(true);
   });
@@ -1112,13 +1096,14 @@ function renderReport(data) {
     <div class="table-wrap">
       <table class="report">
         <thead>
-          <tr><th>DNI</th><th>Persona</th><th>Emp.</th><th>Sel.</th><th>Total</th></tr>
+          <tr><th>Persona</th><th>DNI</th><th>Código</th><th>Emp.</th><th>Sel.</th><th>Total</th></tr>
         </thead>
         <tbody>
           ${rows.map((row) => `
             <tr>
-              <td class="dni">${esc(row.dni)}</td>
               <td class="persona" title="${esc(row.persona)}">${esc(row.persona)}</td>
+              <td class="dni">${esc(row.dni)}</td>
+              <td class="dni">${esc(row.codigo || "—")}</td>
               <td class="num">${Number(row.empacador) || 0}</td>
               <td class="num">${Number(row.seleccionador) || 0}</td>
               <td class="num">${Number(row.total) || 0}</td>

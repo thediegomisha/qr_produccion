@@ -34,6 +34,13 @@ Para cámara en LAN se necesita HTTPS con certificado confiable para el iPhone.
 - Lotes: selección y creación; cierre según permisos; reapertura solo ROOT.
 - Historial local: pendientes, enviados y recibos de envíos con duplicados.
 - Reportes por DNI, empacador y seleccionador; fechas inclusivas en hora Perú.
+- En los clientes móviles, el reporte **por lote** incluye todos los días:
+  se retiraron Desde/Hasta y no se envía un rango de fechas oculto.
+  La API mantiene los filtros opcionales para los demás reportes.
+- La grilla muestra nombre, DNI, código de etiqueta, empacado, selección y total.
+  El campo `codigo` conserva el identificador QR leído (numérico o letra);
+  si hay varios códigos para un DNI en el mismo lote, se muestran sin repetir.
+  Instalar APK 1.2.5 y desplegar el backend actualizado para ver esta columna.
 - Reportes consolidados del lote para todos los roles, sin filtro implícito por
   el usuario que consulta. Tras **Consultar**, la PWA y la APK 1.2.2 refrescan
   cada 10 segundos mientras el reporte está abierto/en primer plano. No es
