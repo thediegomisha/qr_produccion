@@ -39,7 +39,8 @@ def test_compact_label_keeps_product_and_four_25mm_cells(producto):
     zpl = generar_zpl_qr_4cols([item] * 4)
     assert "^PW840" in zpl and "^LL200" in zpl
     assert zpl.count("^BQN,2,3") == 4
-    assert zpl.count("^GB44,26,26,W,0") == 4
+    assert zpl.count("^GB48,30,30,W,0") == 4
+    assert zpl.count("^A0N,22,14") == 4
     for data in re.findall(r"\^FDHA,(.+)\^FS", zpl):
         assert json.loads(data) == compact_payload(item["token"], item["dni"], item["visible"], producto)
     assert generar_qr_memoria(item["token"], item["dni"], item["visible"], "UVA").getvalue().startswith(b"\x89PNG")
@@ -77,6 +78,10 @@ def test_invalid_scans_are_atomic_and_do_not_create_lots(client, session_factory
         "batch_uuid": "bad", "lote_codigo": "NO-CREAR", "scans": [scan],
     })
     assert response.status_code == 400
+    if kind != "future":
+        reason = "QR_NO_EMITIDO" if kind == "unknown" else "DNI_EMISION_DISTINTO"
+        assert reason in response.json()["detail"]
+        assert "lectura 1" in response.json()["detail"]
     with session_factory() as db:
         assert db.query(ScanEvent).count() == 0
         assert db.query(Lote).count() == 0
@@ -112,3 +117,82 @@ def test_uploaded_compact_qr_can_be_filtered_by_raw_product(client, session_fact
         assert db.execute(text(
             "SELECT COUNT(*) FROM scan_events WHERE raw->>'p' = :producto"
         ), {"producto": producto}).scalar_one() == 1
+
+
+def test_recorded_legacy_scan_is_duplicate_without_emission(client, session_factory, engine):
+    if engine.dialect.name != "postgresql":
+        pytest.skip("El envío de lecturas requiere PostgreSQL")
+    original_time = datetime(2026, 1, 1, 12)
+    with session_factory() as db:
+        old_lot = Lote(codigo="ORIGINAL", estado="ABIERTO")
+        db.add(old_lot)
+        db.flush()
+        old_lot_id = old_lot.id
+        db.add(ScanEvent(
+            token="legacy-recorded", dni="12345678", lote_id=old_lot.id,
+            scanned_at=original_time, raw={"id": "007", "p": "UVA"},
+        ))
+        db.add(QREmitido(token="new-issued", dni_trabajador="12345678", nn="ABC", producto="UVA"))
+        db.commit()
+    response = client.post("/api/scans/batch", json={
+        "batch_uuid": "legacy-retry", "lote_codigo": "NUEVO",
+        "scans": [
+            {"token": "legacy-recorded", "dni": "12345678", "scanned_at": "2026-01-02T12:00:00Z"},
+            {"token": "new-issued", "dni": "12345678", "scanned_at": "2026-01-02T12:00:00Z"},
+        ],
+    })
+    assert response.status_code == 200
+    assert response.json() == {"batch_uuid": "legacy-retry", "accepted_count": 1, "duplicate_count": 1}
+    with session_factory() as db:
+        assert db.query(ScanEvent).count() == 2
+        original = db.get(ScanEvent, "legacy-recorded")
+        assert original.lote_id == old_lot_id
+        assert original.scanned_at == original_time
+        assert original.raw == {"id": "007", "p": "UVA"}
+        assert db.get(QREmitido, "legacy-recorded") is None
+
+
+def test_recorded_token_with_different_dni_is_not_acknowledged(client, session_factory):
+    with session_factory() as db:
+        db.add(ScanEvent(token="legacy", dni="12345678"))
+        db.commit()
+    response = client.post("/api/scans/batch", json={
+        "batch_uuid": "wrong-dni-retry", "lote_codigo": "NO-CREAR",
+        "scans": [{"token": "legacy", "dni": "87654321", "scanned_at": "2026-01-01T12:00:00Z"}],
+    })
+    assert response.status_code == 400
+    assert "DNI_LECTURA_DISTINTO" in response.json()["detail"]
+    assert "12345678" not in response.text
+    with session_factory() as db:
+        assert db.query(Lote).count() == 0
+        assert db.get(ScanEvent, "legacy").dni == "12345678"
+
+
+def test_unknown_qr_keeps_valid_rows_in_same_batch_pending(client, session_factory):
+    with session_factory() as db:
+        db.add(QREmitido(token="valid", dni_trabajador="12345678"))
+        db.commit()
+    response = client.post("/api/scans/batch", json={
+        "batch_uuid": "atomic", "lote_codigo": "NO-CREAR",
+        "scans": [
+            {"token": token, "dni": "12345678", "scanned_at": "2026-01-01T12:00:00Z"}
+            for token in ("valid", "unknown")
+        ],
+    })
+    assert response.status_code == 400
+    assert "QR_NO_EMITIDO: lectura 2" in response.json()["detail"]
+    with session_factory() as db:
+        assert db.query(ScanEvent).count() == 0
+        assert db.query(Lote).count() == 0
+
+
+def test_emission_with_null_dni_returns_validation_error_not_server_error(client, session_factory):
+    with session_factory() as db:
+        db.add(QREmitido(token="no-dni", dni_trabajador=None))
+        db.commit()
+    response = client.post("/api/scans/batch", json={
+        "batch_uuid": "null-dni", "lote_codigo": "NO-CREAR",
+        "scans": [{"token": "no-dni", "dni": "12345678", "scanned_at": "2026-01-01T12:00:00Z"}],
+    })
+    assert response.status_code == 400
+    assert "DNI_EMISION_DISTINTO" in response.json()["detail"]

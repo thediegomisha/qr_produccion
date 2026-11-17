@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 import json
 
 from app.db.base import SessionLocal
-from app.db.models import QREmitido
+from app.db.models import QREmitido, ScanEvent
 from app.core.auth_dep import get_current_user
 
 router = APIRouter(prefix="/scans", tags=["scans"])
@@ -118,10 +118,37 @@ def upload_batch(payload: BatchIn, user=Depends(get_current_user)):
         emissions = {
             row.token: row for row in db.query(QREmitido).filter(QREmitido.token.in_(tokens)).all()
         }
-        for scan in payload.scans:
-            emission = emissions.get(scan.token.strip())
-            if emission is None or emission.dni_trabajador.strip() != scan.dni:
-                raise HTTPException(400, "QR no emitido o DNI no coincide con la emisión")
+        recorded = {
+            row.token: row.dni
+            for row in db.query(ScanEvent.token, ScanEvent.dni).filter(ScanEvent.token.in_(tokens)).all()
+        }
+        recorded_duplicates = set()
+        for index, scan in enumerate(payload.scans, start=1):
+            token = scan.token.strip()
+            # Reenvíos confirmados no requieren recuperar una emisión antigua.
+            # No vuelven a insertarse ni cambian el DNI/lote de la lectura existente.
+            if token in recorded:
+                if (recorded[token] or "").strip() != scan.dni:
+                    raise HTTPException(
+                        400, f"DNI_LECTURA_DISTINTO: lectura {index}. "
+                        "El DNI no coincide con la lectura ya registrada. "
+                        "El envío completo permanece pendiente.",
+                    )
+                recorded_duplicates.add(token)
+                continue
+            emission = emissions.get(token)
+            if emission is None:
+                raise HTTPException(
+                    400, f"QR_NO_EMITIDO: lectura {index}. "
+                    "El token no está registrado en qr_emitidos de esta API. "
+                    "El envío completo permanece pendiente.",
+                )
+            if (emission.dni_trabajador or "").strip() != scan.dni:
+                raise HTTPException(
+                    400, f"DNI_EMISION_DISTINTO: lectura {index}. "
+                    "El DNI no coincide con la emisión registrada. "
+                    "El envío completo permanece pendiente.",
+                )
 
         # 1) Resolver / crear lote
         lote_row = db.execute(
@@ -147,6 +174,11 @@ def upload_batch(payload: BatchIn, user=Depends(get_current_user)):
         for s in payload.scans:
             token = (s.token or "").strip()
             dni = (s.dni or "").strip()
+
+            # Incluso si se elimina la lectura concurrentemente, no reinsertar
+            # un duplicado histórico sin validar su emisión como lectura nueva.
+            if token in recorded_duplicates:
+                continue
 
             if not token or not dni:
                 continue

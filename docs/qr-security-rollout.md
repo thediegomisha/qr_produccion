@@ -12,7 +12,9 @@
   Con DNI de ocho cifras y código de tres caracteres el JSON ocupa 62 bytes para
   UVA y 64 para PALTA. El prefijo del producto ya no es necesario.
 - ECC H, zona de silencio de cuatro módulos, magnificación máxima que cabe
-  (3 para UVA/PALTA con token de 16 caracteres) y recuadro central fijo de 44 × 26 puntos.
+  (3 para UVA/PALTA con token de 16 caracteres) y recuadro central fijo de 48 × 30 puntos.
+- Texto central con altura de 22 puntos ZPL (antes 20); el ancho se ajusta para
+  que tres caracteres no se recorten. Las medidas de la etiqueta no cambian.
 - El PNG conserva píxeles enteros, sin reducción interpolada.
 - La APK v1.2.6 puede consumir `t`, `dni`, `id`. El parser PWA acepta tanto las
   claves antiguas cortas como sus alias largos.
@@ -45,6 +47,8 @@ preservar la zona blanca alrededor del QR.
   sin redirecciones HTTP. Usar direcciones IP fijas o DNS administrado para evitar
   que un nombre autorizado cambie a un destino no confiable.
 - Validación atómica de emisión/DNI/fecha antes de insertar un envío de lecturas.
+  Los reenvíos de lecturas ya registradas con el mismo token y DNI se confirman
+  como duplicados sin exigir la emisión histórica ni volver a insertarlos.
   Se aceptan fechas antiguas desde 2020 para sincronización offline, no más de
   cinco minutos en el futuro. Un elemento inválido rechaza todo el envío y no se
   borra de la cola del cliente; corregir/investigar esa lectura antes de reintentar.

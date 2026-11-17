@@ -1,6 +1,8 @@
 import json
 import qrcode
-from app.services.qr_service import compact_payload
+from app.services.qr_service import (
+    compact_payload, CENTER_BOX_WIDTH, CENTER_BOX_HEIGHT, CENTER_FONT_SIZE,
+)
 
 def generar_zpl_qr(token: str, dni: str, visible: str, producto: str):
     data = json.dumps(compact_payload(token, dni, visible, producto), separators=(",", ":"))
@@ -9,12 +11,17 @@ def generar_zpl_qr(token: str, dni: str, visible: str, producto: str):
     if mag < 2:
         raise ValueError("El payload no cabe en la etiqueta")
     origin = (199 - modules * mag) // 2
+    box_x = (199 - CENTER_BOX_WIDTH) // 2
+    box_y = (199 - CENTER_BOX_HEIGHT) // 2
+    text_y = box_y + (CENTER_BOX_HEIGHT - CENTER_FONT_SIZE) // 2
+    font_width = min(CENTER_FONT_SIZE, (CENTER_BOX_WIDTH - 4) // max(1, len(str(visible))))
     return "\n".join([
         "^XA", "^PW199", "^LL199",
         f"^FO{origin},{origin}", f"^BQN,2,{mag}", f"^FDHA,{data}^FS",
-        "^FO77,86", "^GB44,26,26,W,0^FS",
-        "^FO77,89", f"^A0N,20,{min(20, 40 // max(1, len(visible)))}",
-        "^FB44,1,0,C,0", f"^FD{visible}^FS",
+        f"^FO{box_x},{box_y}",
+        f"^GB{CENTER_BOX_WIDTH},{CENTER_BOX_HEIGHT},{CENTER_BOX_HEIGHT},W,0^FS",
+        f"^FO{box_x},{text_y}", f"^A0N,{CENTER_FONT_SIZE},{font_width}",
+        f"^FB{CENTER_BOX_WIDTH},1,0,C,0", f"^FD{visible}^FS",
         "^XZ",
     ])
 
@@ -88,9 +95,9 @@ def generar_zpl_qr_4cols(
         zpl.append(f"^FDHA,{data}^FS")   # 👈 HA (H)
 
         # Recuadro fijo: no crece al aumentar el tamaño de los módulos.
-        box_w = 44
-        box_h = 26
-        font = 20
+        box_w = CENTER_BOX_WIDTH
+        box_h = CENTER_BOX_HEIGHT
+        font = CENTER_FONT_SIZE
 
         box_x = qr_x + (qr_size - box_w) // 2
         box_y = qr_y + (qr_size - box_h) // 2
@@ -103,8 +110,7 @@ def generar_zpl_qr_4cols(
         zpl.append(f"^FO{box_x},{box_y}")
         zpl.append(f"^GB{box_w},{box_h},{box_h},W,0^FS")
 
-        # 5) Aumentar un punto ZPL al texto y mantenerlo centrado.
-        font = min(max(18, font) + 2, box_h - 6)
+        # 5) Altura exacta de 22 puntos ZPL, centrada con margen interior.
         text_y = box_y + max(0, (box_h - font) // 2)
         font_width = min(font, (box_w - 4) // max(1, len(str(it["visible"]))))
 

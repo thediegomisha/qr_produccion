@@ -13,13 +13,14 @@ const { PNG } = require("pngjs");
     overrides: { wasmBinary: fs.readFileSync("backend/app/mobile/vendor/zxing_reader.wasm") },
     fireImmediately: true,
   });
+  for (const [product, code] of [["UVA", "007"], ["PALTA", "007"], ["UVA", "ABC"], ["PALTA", "WWW"]]) {
   for (const [size, blur] of [[120, 0], [160, 0], [180, 1], [220, 1.5]]) {
     const png = execFileSync(process.env.PYTHON_BIN || ".venv/bin/python", ["-c", [
       "import sys,io",
       "sys.path.insert(0,'backend')",
       "from PIL import Image,ImageFilter",
       "from app.services.qr_service import generar_qr_memoria",
-      "img=Image.open(generar_qr_memoria('AbCdEf0123_-XY89','12345678','007','UVA'))",
+      `img=Image.open(generar_qr_memoria('AbCdEf0123_-XY89','12345678','${code}','${product}'))`,
       `img=img.resize((${size},${size}),Image.Resampling.LANCZOS).filter(ImageFilter.GaussianBlur(${blur}))`,
       "out=io.BytesIO();img.save(out,format='PNG');sys.stdout.buffer.write(out.getvalue())",
     ].join(";")]);
@@ -30,8 +31,10 @@ const { PNG } = require("pngjs");
       formats: ["QRCode"], tryHarder: true, tryRotate: true,
       tryInvert: true, tryDownscale: true, maxNumberOfSymbols: 1,
     });
-    assert.equal(results.find(result => result.isValid)?.text,
-      '{"t":"AbCdEf0123_-XY89","dni":"12345678","id":"007","p":"UVA"}');
-    console.log(`PASS: backend PNG + central number, ${size}px, blur ${blur}px`);
+    assert.equal(results.find(result => result.isValid)?.text, JSON.stringify({
+      t: "AbCdEf0123_-XY89", dni: "12345678", id: code, p: product,
+    }));
+    console.log(`PASS: backend PNG + 48x30 overlay and 22-dot text, ${product}/${code}, ${size}px, blur ${blur}px`);
+  }
   }
 })().catch(error => { console.error(error); process.exitCode = 1; });
