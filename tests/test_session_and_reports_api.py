@@ -113,6 +113,9 @@ def reportes_app(engine, client, session_factory, user):
         db.add(Trabajador(dni="11111111", nombre="ANA", apellido_paterno="PEREZ",
                           apellido_materno=None, rol="EMPACADOR", num_orden=1,
                           cod_letra="A001", activo=True))
+        db.add(Trabajador(dni="22222222", nombre="LUIS", apellido_paterno="SOTO",
+                          apellido_materno=None, rol="SELECCIONADOR", num_orden=2,
+                          cod_letra="B001", activo=True))
         lot_a = Lote(codigo="REP-A", estado="ABIERTO")
         lot_b = Lote(codigo="REP-B", estado="ABIERTO")
         db.add_all([lot_a, lot_b])
@@ -121,7 +124,7 @@ def reportes_app(engine, client, session_factory, user):
         d2 = datetime(2026, 3, 10, 17, 0, tzinfo=timezone.utc).astimezone(timezone.utc).replace(tzinfo=None)
         db.add(ScanEvent(token="r1", dni="11111111", lote_id=lot_a.id, scanned_at=d1,
                         raw={"id": "12", "p": "PALTA"}, user_id="op1", session_uuid="s1"))
-        db.add(ScanEvent(token="r2", dni="11111111", lote_id=lot_b.id, scanned_at=d2,
+        db.add(ScanEvent(token="r2", dni="22222222", lote_id=lot_b.id, scanned_at=d2,
                         raw={"id": "AB", "p": "PALTA"}, user_id="op2", session_uuid="s2"))
         db.commit()
     return client
@@ -131,7 +134,7 @@ def test_dni_summary_by_date_range_covers_all_lotes(reportes_app):
     data = reportes_app.get("/api/reports/dni-summary",
                             params={"date_from": "2026-03-01", "date_to": "2026-03-31"}).json()
     assert data["totals"]["total_lecturas"] == 2
-    assert {r["dni"] for r in data["rows"]} == {"11111111"}
+    assert {r["dni"] for r in data["rows"]} == {"11111111", "22222222"}
     assert data["date_from"] == "2026-03-01"
 
     solo_d1 = reportes_app.get("/api/reports/dni-summary",
@@ -149,6 +152,8 @@ def test_dni_summary_by_lote_and_combined_filters(reportes_app):
                                params={"lote_codigo": "REP-B"}).json()
     assert por_lote["totals"]["total_lecturas"] == 1
     assert por_lote["totals"]["sel_lecturas"] == 1
+    assert por_lote["totals"]["emp_lecturas"] == 0
+    assert por_lote["rows"][0]["rol"] == "SELECCIONADOR"
 
     combinado = reportes_app.get("/api/reports/dni-summary",
                                  params={"lote_codigo": "REP-B",

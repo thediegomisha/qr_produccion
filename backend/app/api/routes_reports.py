@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from app.db.base import SessionLocal
 from app.core.auth_dep import get_current_user
+from app.services.production_sql import production_cte, production_params
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -132,78 +133,45 @@ def dni_summary(
     lote_codigo = _clean_optional(lote_codigo)
     date_from, date_to = _date_pair(date_from, date_to)
 
-    date_filter = """
-      AND (CAST(:date_from AS date) IS NULL OR se.scanned_at >= (CAST(:date_from AS date))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
-      AND (CAST(:date_to AS date) IS NULL OR se.scanned_at < ((CAST(:date_to AS date) + 1))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
-    """
-
-    totals_sql = text("""
+    sql = text(f"""
+    {production_cte()}
     SELECT
-      COUNT(*) AS total_lecturas,
-      COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[0-9]') AS emp_lecturas,
-      COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[A-Za-z]') AS sel_lecturas
-    FROM scan_events se
-    LEFT JOIN lotes l ON l.id = se.lote_id
-    WHERE se.raw IS NOT NULL
-      AND (se.raw->>'id') IS NOT NULL
-      AND (:producto IS NULL OR se.raw->>'p' = :producto)
-      AND (:scanned_by IS NULL OR se.user_id = :scanned_by)
-      AND (:lote_id IS NULL OR se.lote_id = :lote_id)
-    """ + date_filter + """
-    ;
-    """)
-
-    rows_sql = text("""
-    SELECT
-      se.dni,
+      dni,
+      persona,
+      MIN(rol) AS rol,
       COALESCE(
-        NULLIF(
-          TRIM(
-            t.apellido_paterno || ' ' ||
-            COALESCE(t.apellido_materno, '') || ' ' ||
-            COALESCE(t.nombre, '')
-          ),
-          ''
-        ),
-        'SIN REGISTRO'
-      ) AS persona,
-      COALESCE(
-        STRING_AGG(DISTINCT NULLIF(TRIM(se.raw->>'id'), ''), ', '
-                   ORDER BY NULLIF(TRIM(se.raw->>'id'), '')),
+        STRING_AGG(DISTINCT codigo, ', ' ORDER BY codigo)
+          FILTER (WHERE codigo IS NOT NULL),
         ''
       ) AS codigo,
-      COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[0-9]') AS empacador,
-      COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[A-Za-z]') AS seleccionador,
+      COUNT(*) FILTER (WHERE rol LIKE 'EMPACADOR%') AS empacador,
+      COUNT(*) FILTER (WHERE rol = 'SELECCIONADOR') AS seleccionador,
+      COUNT(*) FILTER (WHERE rol NOT LIKE 'EMPACADOR%' AND rol <> 'SELECCIONADOR') AS sin_rol,
       COUNT(*) AS total
-    FROM scan_events se
-    LEFT JOIN lotes l ON l.id = se.lote_id
-    LEFT JOIN trabajadores t
-      ON TRIM(t.dni) = TRIM(se.dni)
-     AND t.activo = true
-    WHERE se.raw IS NOT NULL
-      AND (se.raw->>'id') IS NOT NULL
-      AND (:producto IS NULL OR se.raw->>'p' = :producto)
-      AND (:scanned_by IS NULL OR se.user_id = :scanned_by)
-      AND (:lote_id IS NULL OR se.lote_id = :lote_id)
-    """ + date_filter + """
-    GROUP BY se.dni, persona
+    FROM base
+    GROUP BY dni, persona
     ORDER BY total DESC;
     """)
 
     with SessionLocal() as db:
-        lote_id, _, _ = _resolve_lote(db, lote_codigo)
+        _, lote_codigo_db, _ = _resolve_lote(db, lote_codigo)
 
-        params = {
-            "producto": producto,
-            "scanned_by": scanned_by_eff,
-            "lote_id": lote_id,
-            "date_from": date_from,
-            "date_to": date_to,
-            "tz": _TIMEZONE,
-        }
+        params = production_params(
+            producto=producto,
+            scanned_by=scanned_by_eff,
+            lote=lote_codigo_db,
+            date_from=date_from,
+            date_to=date_to,
+            tz=_TIMEZONE,
+        )
+        rows = [dict(r) for r in db.execute(sql, params).mappings().all()]
 
-        totals = db.execute(totals_sql, params).mappings().first() or {}
-        rows = db.execute(rows_sql, params).mappings().all()
+    totals = {
+        "total_lecturas": sum(int(r["total"] or 0) for r in rows),
+        "emp_lecturas": sum(int(r["empacador"] or 0) for r in rows),
+        "sel_lecturas": sum(int(r["seleccionador"] or 0) for r in rows),
+        "sin_rol_lecturas": sum(int(r["sin_rol"] or 0) for r in rows),
+    }
 
     return {
         "producto": producto,
@@ -211,8 +179,8 @@ def dni_summary(
         "lote_codigo": lote_codigo,
         "date_from": date_from,
         "date_to": date_to,
-        "totals": dict(totals),
-        "rows": [dict(r) for r in rows],
+        "totals": totals,
+        "rows": rows,
     }
 
 
@@ -234,33 +202,28 @@ def operator_summary(
     lote_codigo = _clean_optional(lote_codigo)
     date_from, date_to = _date_pair(date_from, date_to)
 
-    sql = text("""
+    sql = text(f"""
+    {production_cte()}
     SELECT
-      se.user_id,
+      user_id,
       COUNT(*)::int AS total,
-      COUNT(DISTINCT se.dni)::int AS dnis_distintos,
-      MAX(se.scanned_at) AS ultima_lectura
-    FROM scan_events se
-    LEFT JOIN lotes l ON l.id = se.lote_id
-    WHERE (:producto IS NULL OR se.raw->>'p' = :producto)
-      AND (:scanned_by IS NULL OR se.user_id = :scanned_by)
-      AND (:lote_id IS NULL OR se.lote_id = :lote_id)
-      AND (CAST(:date_from AS date) IS NULL OR se.scanned_at >= (CAST(:date_from AS date))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
-      AND (CAST(:date_to AS date) IS NULL OR se.scanned_at < ((CAST(:date_to AS date) + 1))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
-    GROUP BY se.user_id
+      COUNT(DISTINCT dni)::int AS dnis_distintos,
+      MAX(scanned_at) AS ultima_lectura
+    FROM base
+    GROUP BY user_id
     ORDER BY total DESC, ultima_lectura DESC;
     """)
 
     with SessionLocal() as db:
-        lote_id, _, _ = _resolve_lote(db, lote_codigo)
-        rows = db.execute(sql, {
-            "producto": producto,
-            "scanned_by": scanned_by_eff,
-            "lote_id": lote_id,
-            "date_from": date_from,
-            "date_to": date_to,
-            "tz": _TIMEZONE,
-        }).mappings().all()
+        _, lote_codigo_db, _ = _resolve_lote(db, lote_codigo)
+        rows = db.execute(sql, production_params(
+            producto=producto,
+            scanned_by=scanned_by_eff,
+            lote=lote_codigo_db,
+            date_from=date_from,
+            date_to=date_to,
+            tz=_TIMEZONE,
+        )).mappings().all()
 
     return {
         "producto": producto,

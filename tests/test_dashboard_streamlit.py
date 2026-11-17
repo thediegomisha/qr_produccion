@@ -45,6 +45,8 @@ def _seed(client, session_factory, engine):
     with session_factory() as db:
         db.add(Trabajador(dni="11111111", nombre="ANA", apellido_paterno="PEREZ", apellido_materno=None,
                           rol="EMPACADOR", num_orden=1, cod_letra="A001", activo=True))
+        db.add(Trabajador(dni="22222222", nombre="LUIS", apellido_paterno="SOTO", apellido_materno=None,
+                          rol="SELECCIONADOR", num_orden=2, cod_letra="B001", activo=True))
         for i, marker in enumerate(["1", "2", "AB"]):
             db.add(ScanEvent(token=f"tok{i}", dni="11111111" if marker != "AB" else "22222222",
                              lote_id=lote["id"], scanned_at=when, raw={"id": marker, "p": "PALTA"},
@@ -121,23 +123,33 @@ def test_dashboard_is_lote_first_with_plecto_style_kpis(ui_api, client, session_
     assert not at.exception
 
 
-def test_dashboard_selector_ranking_uses_qr_type_as_task(ui_api, client, session_factory, engine, user):
-    """El tipo de QR define la tarea: número = empacado, letra = selección.
+def test_dashboard_selector_ranking_uses_registered_role(ui_api, client, session_factory, engine, user):
+    """El rol registrado define el ranking, no la forma del código impreso.
 
-    Un trabajador que empaca y luego selecciona debe aparecer en ambos rankings;
-    el ranking de seleccionadores no puede quedar vacío por ordenar solo empacadas.
+    La empacadora con códigos de letra sigue sumando en Empacadoras y el
+    seleccionador con códigos numéricos suma en Seleccionadores; así el ranking
+    de seleccionadores no queda vacío.
     """
     if engine.dialect.name != "postgresql":
         pytest.skip("El dashboard requiere PostgreSQL")
     lote = client.post("/api/lotes", json={"codigo": "DASH-SEL"}).json()
     when = datetime(2026, 1, 5, 17, 0, tzinfo=timezone.utc).astimezone(timezone.utc).replace(tzinfo=None)
     with session_factory() as db:
-        db.add(Trabajador(dni="33333333", nombre="CARLOS", apellido_paterno="QUISPE",
-                          apellido_materno=None, rol="EMPACADORA", num_orden=30,
-                          cod_letra="BDZ", activo=True))
-        # Primero empaca (número) y luego selecciona (letra), en la misma sesión.
-        for i, marker in enumerate(["30", "BDZ", "BDZ", "BDZ"]):
-            db.add(ScanEvent(token=f"sel{i}", dni="33333333", lote_id=lote["id"],
+        db.add_all([
+            Trabajador(dni="33333333", nombre="CARLOS", apellido_paterno="QUISPE",
+                       apellido_materno=None, rol="EMPACADORA", num_orden=30,
+                       cod_letra="BDZ", activo=True),
+            Trabajador(dni="44444444", nombre="ROSA", apellido_paterno="FLORES",
+                       apellido_materno=None, rol="SELECCIONADOR", num_orden=31,
+                       cod_letra="BEA", activo=True),
+        ])
+        # La empacadora imprime códigos con letra y el seleccionador códigos
+        # numéricos: la forma no debe cambiar la clasificación por rol.
+        for i, (dni, marker) in enumerate([
+            ("33333333", "30"), ("33333333", "BDZ"), ("33333333", "31"), ("33333333", "BDY"),
+            ("44444444", "32"), ("44444444", "BEA"),
+        ]):
+            db.add(ScanEvent(token=f"sel{i}", dni=dni, lote_id=lote["id"],
                              scanned_at=when + timedelta(minutes=10 * i),
                              raw={"id": marker, "p": "PALTA"},
                              user_id="op1", session_uuid="s-sel"))
@@ -158,7 +170,7 @@ def test_dashboard_selector_ranking_uses_qr_type_as_task(ui_api, client, session
     assert not at.exception
     joined = "\n".join(m.value for m in at.markdown)
     assert "Cajas seleccionadas por persona" in joined
-    assert "3</b> seleccionadas" in joined
+    assert "2</b> seleccionadas" in joined
     assert "Cajas empacadas por persona" not in joined
 
     # La tabla completa conserva ambas tareas y el rol registrado.
@@ -166,8 +178,12 @@ def test_dashboard_selector_ranking_uses_qr_type_as_task(ui_api, client, session
     assert "rol_registrado" in eff_table.columns
     assert {"horas_empacado", "horas_seleccion", "seleccionadas_por_hora"} <= set(eff_table.columns)
     carlos = eff_table[eff_table["dni"] == "33333333"].iloc[0]
-    assert carlos["empacadas"] == 1 and carlos["seleccionadas"] == 3
+    assert carlos["rol_registrado"] == "EMPACADORA"
+    assert carlos["empacadas"] == 4 and carlos["seleccionadas"] == 0
     assert carlos["total_cajas"] == 4
+    rosa = eff_table[eff_table["dni"] == "44444444"].iloc[0]
+    assert rosa["rol_registrado"] == "SELECCIONADOR"
+    assert rosa["empacadas"] == 0 and rosa["seleccionadas"] == 2
 
 
 def test_dashboard_empty_range_shows_info(ui_api, client, engine, user):

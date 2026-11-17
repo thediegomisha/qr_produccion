@@ -6,6 +6,7 @@ from sqlalchemy import text
 
 from app.core.auth_dep import get_current_user
 from app.db.base import SessionLocal
+from app.services.production_sql import production_cte, production_params
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -40,29 +41,27 @@ def cajas_por_dia(
     date_from = _clean_optional(date_from)
     date_to = _clean_optional(date_to)
 
-    sql = text("""
+    sql = text(f"""
+        {production_cte()}
         SELECT
-            (se.scanned_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date AS dia,
-            COALESCE(l.codigo, 'SIN LOTE') AS lote,
+            (scanned_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date AS dia,
+            lote,
             COUNT(*)::int AS total,
-            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[0-9]')::int AS empacadas,
-            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[A-Za-z]')::int AS seleccionadas
-        FROM scan_events se
-        LEFT JOIN lotes l ON l.id = se.lote_id
-        WHERE (CAST(:date_from AS date) IS NULL OR se.scanned_at >= (CAST(:date_from AS date))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
-          AND (CAST(:date_to AS date) IS NULL OR se.scanned_at < ((CAST(:date_to AS date) + 1))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
-          AND (:lote IS NULL OR l.codigo = :lote)
+            COUNT(*) FILTER (WHERE rol LIKE 'EMPACADOR%')::int AS empacadas,
+            COUNT(*) FILTER (WHERE rol = 'SELECCIONADOR')::int AS seleccionadas,
+            COUNT(*) FILTER (WHERE rol NOT LIKE 'EMPACADOR%' AND rol <> 'SELECCIONADOR')::int AS sin_rol
+        FROM base
         GROUP BY dia, lote
         ORDER BY dia, lote
     """)
 
     with SessionLocal() as db:
-        rows = db.execute(sql, {
-            "tz": _TIMEZONE,
-            "date_from": date_from,
-            "date_to": date_to,
-            "lote": lote,
-        }).mappings().all()
+        rows = db.execute(sql, production_params(
+            lote=lote,
+            date_from=date_from,
+            date_to=date_to,
+            tz=_TIMEZONE,
+        )).mappings().all()
 
     return {
         "date_from": date_from,
@@ -89,32 +88,23 @@ def eficiencia_personal(
     date_from = _clean_optional(date_from)
     date_to = _clean_optional(date_to)
 
-    # Eficiencia por tarea: cada persona puede empacar y seleccionar en la misma
-    # sesión, así que las horas activas se calculan por separado para cada tarea.
-    sql = text("""
-        WITH base AS (
-            SELECT
-                se.dni,
-                se.user_id,
-                se.session_uuid,
-                (se.scanned_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date AS dia,
-                se.scanned_at,
-                (se.raw->>'id') ~ '^[0-9]' AS es_empacador
-            FROM scan_events se
-            LEFT JOIN lotes l ON l.id = se.lote_id
-            WHERE (CAST(:date_from AS date) IS NULL OR se.scanned_at >= (CAST(:date_from AS date))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
-              AND (CAST(:date_to AS date) IS NULL OR se.scanned_at < ((CAST(:date_to AS date) + 1))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
-              AND (:lote IS NULL OR l.codigo = :lote)
-        ),
+    # El rol registrado del trabajador define la tarea. Todas sus lecturas y sus
+    # horas activas se asignan a ese rol, aunque la etiqueta se haya impreso con
+    # número o con letra.
+    sql = text(f"""
+        {production_cte()},
         sesiones AS (
             SELECT
                 dni,
                 user_id,
                 session_uuid,
-                dia,
+                (scanned_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date AS dia,
+                MIN(persona) AS persona,
+                MIN(rol) AS rol,
                 COUNT(*)::int AS cajas,
-                COUNT(*) FILTER (WHERE es_empacador)::int AS empacadas,
-                COUNT(*) FILTER (WHERE NOT es_empacador)::int AS seleccionadas,
+                COUNT(*) FILTER (WHERE rol LIKE 'EMPACADOR%')::int AS empacadas,
+                COUNT(*) FILTER (WHERE rol = 'SELECCIONADOR')::int AS seleccionadas,
+                COUNT(*) FILTER (WHERE rol NOT LIKE 'EMPACADOR%' AND rol <> 'SELECCIONADOR')::int AS sin_rol,
                 MIN(scanned_at) AS primera,
                 MAX(scanned_at) AS ultima
             FROM base
@@ -123,10 +113,13 @@ def eficiencia_personal(
         por_persona AS (
             SELECT
                 dni,
+                MIN(persona) AS persona,
+                MIN(rol) AS rol,
                 COUNT(*)::int AS sesiones,
                 SUM(cajas)::int AS total_cajas,
                 SUM(empacadas)::int AS empacadas,
                 SUM(seleccionadas)::int AS seleccionadas,
+                SUM(sin_rol)::int AS sin_rol,
                 COUNT(DISTINCT dia)::int AS dias_trabajados,
                 SUM(
                     CASE WHEN EXTRACT(EPOCH FROM (ultima - primera))::float / 3600 <= 0
@@ -140,7 +133,7 @@ def eficiencia_personal(
         tareas AS (
             SELECT
                 dni,
-                es_empacador,
+                rol,
                 SUM(
                     CASE WHEN EXTRACT(EPOCH FROM (ultima - primera))::float / 3600 <= 0
                          THEN 1.0 / 60.0
@@ -151,23 +144,24 @@ def eficiencia_personal(
                 SELECT
                     dni,
                     session_uuid,
-                    dia,
-                    es_empacador,
+                    (scanned_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date AS dia,
+                    rol,
                     MIN(scanned_at) AS primera,
                     MAX(scanned_at) AS ultima
                 FROM base
-                GROUP BY dni, session_uuid, dia, es_empacador
+                GROUP BY dni, session_uuid, dia, rol
             ) tarea_sesion
-            GROUP BY dni, es_empacador
+            GROUP BY dni, rol
         )
         SELECT
             p.dni,
-            COALESCE(NULLIF(TRIM(t.apellido_paterno || ' ' || COALESCE(t.apellido_materno, '') || ' ' || COALESCE(t.nombre, '')), ''), 'SIN REGISTRO') AS persona,
-            COALESCE(t.rol, 'DESCONOCIDO') AS rol_trabajador,
+            p.persona,
+            CASE WHEN p.rol = 'SIN ROL' THEN 'DESCONOCIDO' ELSE p.rol END AS rol_trabajador,
             p.sesiones,
             p.total_cajas,
             p.empacadas,
             p.seleccionadas,
+            p.sin_rol,
             p.dias_trabajados,
             ROUND(p.horas_activas::numeric, 2)::float AS horas_activas,
             ROUND(COALESCE(te.horas, 0)::numeric, 2)::float AS horas_empacado,
@@ -176,19 +170,18 @@ def eficiencia_personal(
             COALESCE(ROUND((p.empacadas::float / NULLIF(te.horas, 0))::numeric, 1)::float, 0) AS empacadas_por_hora,
             COALESCE(ROUND((p.seleccionadas::float / NULLIF(ts.horas, 0))::numeric, 1)::float, 0) AS seleccionadas_por_hora
         FROM por_persona p
-        LEFT JOIN tareas te ON te.dni = p.dni AND te.es_empacador = true
-        LEFT JOIN tareas ts ON ts.dni = p.dni AND ts.es_empacador = false
-        LEFT JOIN trabajadores t ON TRIM(t.dni) = TRIM(p.dni) AND t.activo = true
+        LEFT JOIN tareas te ON te.dni = p.dni AND te.rol LIKE 'EMPACADOR%'
+        LEFT JOIN tareas ts ON ts.dni = p.dni AND ts.rol = 'SELECCIONADOR'
         ORDER BY total_cajas DESC
     """)
 
     with SessionLocal() as db:
-        rows = db.execute(sql, {
-            "tz": _TIMEZONE,
-            "date_from": date_from,
-            "date_to": date_to,
-            "lote": lote,
-        }).mappings().all()
+        rows = db.execute(sql, production_params(
+            lote=lote,
+            date_from=date_from,
+            date_to=date_to,
+            tz=_TIMEZONE,
+        )).mappings().all()
 
     return {
         "date_from": date_from,
@@ -215,31 +208,29 @@ def eficiencia_por_dia(
     date_from = _clean_optional(date_from)
     date_to = _clean_optional(date_to)
 
-    sql = text("""
+    sql = text(f"""
+        {production_cte()}
         SELECT
-            (se.scanned_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date AS dia,
-            se.dni,
-            COALESCE(NULLIF(TRIM(t.apellido_paterno || ' ' || COALESCE(t.apellido_materno, '') || ' ' || COALESCE(t.nombre, '')), ''), 'SIN REGISTRO') AS persona,
+            (scanned_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date AS dia,
+            dni,
+            MIN(persona) AS persona,
+            MIN(rol) AS rol,
             COUNT(*)::int AS total_cajas,
-            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[0-9]')::int AS empacadas,
-            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[A-Za-z]')::int AS seleccionadas
-        FROM scan_events se
-        LEFT JOIN lotes l ON l.id = se.lote_id
-        LEFT JOIN trabajadores t ON TRIM(t.dni) = TRIM(se.dni) AND t.activo = true
-        WHERE (CAST(:date_from AS date) IS NULL OR se.scanned_at >= (CAST(:date_from AS date))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
-          AND (CAST(:date_to AS date) IS NULL OR se.scanned_at < ((CAST(:date_to AS date) + 1))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
-          AND (:lote IS NULL OR l.codigo = :lote)
-        GROUP BY dia, se.dni, persona
+            COUNT(*) FILTER (WHERE rol LIKE 'EMPACADOR%')::int AS empacadas,
+            COUNT(*) FILTER (WHERE rol = 'SELECCIONADOR')::int AS seleccionadas,
+            COUNT(*) FILTER (WHERE rol NOT LIKE 'EMPACADOR%' AND rol <> 'SELECCIONADOR')::int AS sin_rol
+        FROM base
+        GROUP BY dia, dni
         ORDER BY dia, total_cajas DESC
     """)
 
     with SessionLocal() as db:
-        rows = db.execute(sql, {
-            "tz": _TIMEZONE,
-            "date_from": date_from,
-            "date_to": date_to,
-            "lote": lote,
-        }).mappings().all()
+        rows = db.execute(sql, production_params(
+            lote=lote,
+            date_from=date_from,
+            date_to=date_to,
+            tz=_TIMEZONE,
+        )).mappings().all()
 
     return {
         "date_from": date_from,
@@ -266,28 +257,26 @@ def cajas_por_hora(
     date_from = _clean_optional(date_from)
     date_to = _clean_optional(date_to)
 
-    sql = text("""
+    sql = text(f"""
+        {production_cte()}
         SELECT
-            EXTRACT(HOUR FROM (se.scanned_at AT TIME ZONE 'UTC' AT TIME ZONE :tz))::int AS hora,
+            EXTRACT(HOUR FROM (scanned_at AT TIME ZONE 'UTC' AT TIME ZONE :tz))::int AS hora,
             COUNT(*)::int AS total,
-            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[0-9]')::int AS empacadas,
-            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[A-Za-z]')::int AS seleccionadas
-        FROM scan_events se
-        LEFT JOIN lotes l ON l.id = se.lote_id
-        WHERE (CAST(:date_from AS date) IS NULL OR se.scanned_at >= (CAST(:date_from AS date))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
-          AND (CAST(:date_to AS date) IS NULL OR se.scanned_at < ((CAST(:date_to AS date) + 1))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
-          AND (:lote IS NULL OR l.codigo = :lote)
+            COUNT(*) FILTER (WHERE rol LIKE 'EMPACADOR%')::int AS empacadas,
+            COUNT(*) FILTER (WHERE rol = 'SELECCIONADOR')::int AS seleccionadas,
+            COUNT(*) FILTER (WHERE rol NOT LIKE 'EMPACADOR%' AND rol <> 'SELECCIONADOR')::int AS sin_rol
+        FROM base
         GROUP BY hora
         ORDER BY hora
     """)
 
     with SessionLocal() as db:
-        rows = db.execute(sql, {
-            "tz": _TIMEZONE,
-            "date_from": date_from,
-            "date_to": date_to,
-            "lote": lote,
-        }).mappings().all()
+        rows = db.execute(sql, production_params(
+            lote=lote,
+            date_from=date_from,
+            date_to=date_to,
+            tz=_TIMEZONE,
+        )).mappings().all()
 
     return {
         "date_from": date_from,
@@ -314,41 +303,29 @@ def produccion_persona_lote(
     date_from = _clean_optional(date_from)
     date_to = _clean_optional(date_to)
 
-    sql = text("""
+    sql = text(f"""
+        {production_cte()}
         SELECT
-            se.dni,
-            COALESCE(
-                NULLIF(
-                    TRIM(
-                        t.apellido_paterno || ' ' ||
-                        COALESCE(t.apellido_materno, '') || ' ' ||
-                        COALESCE(t.nombre, '')
-                    ),
-                    ''
-                ),
-                'SIN REGISTRO'
-            ) AS persona,
-            COALESCE(l.codigo, 'SIN LOTE') AS lote,
+            dni,
+            MIN(persona) AS persona,
+            lote,
+            MIN(rol) AS rol,
             COUNT(*)::int AS total,
-            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[0-9]')::int AS empacadas,
-            COUNT(*) FILTER (WHERE (se.raw->>'id') ~ '^[A-Za-z]')::int AS seleccionadas
-        FROM scan_events se
-        LEFT JOIN lotes l ON l.id = se.lote_id
-        LEFT JOIN trabajadores t ON TRIM(t.dni) = TRIM(se.dni) AND t.activo = true
-        WHERE (CAST(:date_from AS date) IS NULL OR se.scanned_at >= (CAST(:date_from AS date))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
-          AND (CAST(:date_to AS date) IS NULL OR se.scanned_at < ((CAST(:date_to AS date) + 1))::timestamp AT TIME ZONE :tz AT TIME ZONE 'UTC')
-          AND (:lote IS NULL OR l.codigo = :lote)
-        GROUP BY se.dni, persona, lote
+            COUNT(*) FILTER (WHERE rol LIKE 'EMPACADOR%')::int AS empacadas,
+            COUNT(*) FILTER (WHERE rol = 'SELECCIONADOR')::int AS seleccionadas,
+            COUNT(*) FILTER (WHERE rol NOT LIKE 'EMPACADOR%' AND rol <> 'SELECCIONADOR')::int AS sin_rol
+        FROM base
+        GROUP BY dni, lote
         ORDER BY persona, total DESC
     """)
 
     with SessionLocal() as db:
-        rows = db.execute(sql, {
-            "tz": _TIMEZONE,
-            "date_from": date_from,
-            "date_to": date_to,
-            "lote": lote,
-        }).mappings().all()
+        rows = db.execute(sql, production_params(
+            lote=lote,
+            date_from=date_from,
+            date_to=date_to,
+            tz=_TIMEZONE,
+        )).mappings().all()
 
     return {
         "date_from": date_from,
@@ -372,40 +349,30 @@ def actividad_reciente(
 
     lote = _clean_optional(lote_codigo)
 
-    sql = text("""
+    sql = text(f"""
+        {production_cte()}
         SELECT
-            se.token,
-            se.dni,
-            COALESCE(
-                NULLIF(
-                    TRIM(
-                        t.apellido_paterno || ' ' ||
-                        COALESCE(t.apellido_materno, '') || ' ' ||
-                        COALESCE(t.nombre, '')
-                    ),
-                    ''
-                ),
-                'SIN REGISTRO'
-            ) AS persona,
-            COALESCE(l.codigo, 'SIN LOTE') AS lote,
+            token,
+            dni,
+            persona,
+            lote,
             CASE
-                WHEN (se.raw->>'id') ~ '^[0-9]' THEN 'Empacada'
-                ELSE 'Seleccionada'
+                WHEN rol LIKE 'EMPACADOR%' THEN 'Empacada'
+                WHEN rol = 'SELECCIONADOR' THEN 'Seleccionada'
+                ELSE 'Sin rol'
             END AS tipo,
-            se.scanned_at
-        FROM scan_events se
-        LEFT JOIN lotes l ON l.id = se.lote_id
-        LEFT JOIN trabajadores t ON TRIM(t.dni) = TRIM(se.dni) AND t.activo = true
-        WHERE (:lote IS NULL OR l.codigo = :lote)
-        ORDER BY se.scanned_at DESC
+            scanned_at
+        FROM base
+        ORDER BY scanned_at DESC
         LIMIT :limite
     """)
 
     with SessionLocal() as db:
-        rows = db.execute(sql, {
-            "lote": lote,
-            "limite": limit,
-        }).mappings().all()
+        rows = db.execute(sql, production_params(
+            lote=lote,
+            tz=_TIMEZONE,
+            limite=limit,
+        )).mappings().all()
 
     return {
         "lote_codigo": lote,

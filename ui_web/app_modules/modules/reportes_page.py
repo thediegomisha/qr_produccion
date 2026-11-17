@@ -126,6 +126,28 @@ def _safe_filename(prefix: str, identificador: str) -> str:
     return f"{prefix}_{limpio}_{fecha}.xlsx"
 
 
+def _report_totals(rows: list[dict], totals: dict | None = None) -> dict:
+    """Totales derivados de las mismas filas de la tabla.
+
+    Así los KPIs del reporte nunca difieren de la suma visible, aunque la API
+    devuelva un total desactualizado o una fila sin rol registrado.
+    """
+    totals = totals or {}
+    if rows:
+        return {
+            "total_lecturas": sum(int(r.get("total") or 0) for r in rows),
+            "emp_lecturas": sum(int(r.get("empacador") or 0) for r in rows),
+            "sel_lecturas": sum(int(r.get("seleccionador") or 0) for r in rows),
+            "sin_rol_lecturas": sum(int(r.get("sin_rol") or 0) for r in rows),
+        }
+    return {
+        "total_lecturas": int(totals.get("total_lecturas") or 0),
+        "emp_lecturas": int(totals.get("emp_lecturas") or 0),
+        "sel_lecturas": int(totals.get("sel_lecturas") or 0),
+        "sin_rol_lecturas": int(totals.get("sin_rol_lecturas") or 0),
+    }
+
+
 def render(
     st,
     tabs,
@@ -267,28 +289,38 @@ def render(
         tot = dni_data.get("totals", {}) or {}
         st.caption(st.session_state.get("rep_dni_filtro") or filtro_label)
 
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Total lecturas", int(tot.get("total_lecturas", 0)))
-        m2.metric("Empacador", int(tot.get("emp_lecturas", 0)))
-        m3.metric("Seleccionador", int(tot.get("sel_lecturas", 0)))
+        filas_dni = dni_data.get("rows", []) or []
+        totales = _report_totals(filas_dni, tot)
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Total lecturas", totales["total_lecturas"])
+        m2.metric("Empacador", totales["emp_lecturas"])
+        m3.metric("Seleccionador", totales["sel_lecturas"])
+        m4.metric("Sin rol", totales["sin_rol_lecturas"])
 
-        df_dni = pd.DataFrame(dni_data.get("rows", []))
+        df_dni = pd.DataFrame(filas_dni)
         if df_dni.empty:
             st.info("Sin datos para el filtro seleccionado.")
         else:
+            df_dni = df_dni.rename(columns={
+                "dni": "DNI", "persona": "Persona", "rol": "Rol registrado",
+                "codigo": "Código", "empacador": "Empacador",
+                "seleccionador": "Seleccionador", "sin_rol": "Sin rol", "total": "Total",
+            })
             st.dataframe(df_dni, width="stretch")
 
             x1, x2 = st.columns(2)
             with x1:
                 sub = _report_subtitle(st.session_state.get("rep_dni_filtro") or filtro_label,
-                                       "", dni_data.get("producto") or "", get_user(st))
+                                       "Clasificación por rol registrado del trabajador",
+                                       dni_data.get("producto") or "", get_user(st))
                 _exportar_excel(st, x1, sub, df_dni, "reporte_dni",
                                 st.session_state.get("rep_dni_filtro") or "global", "rep_dni_excel")
             with x2:
                 totals = [
-                    ("Total lecturas", int(tot.get("total_lecturas", 0))),
-                    ("Empacador", int(tot.get("emp_lecturas", 0))),
-                    ("Seleccionador", int(tot.get("sel_lecturas", 0))),
+                    ("Total lecturas", totales["total_lecturas"]),
+                    ("Empacador", totales["emp_lecturas"]),
+                    ("Seleccionador", totales["sel_lecturas"]),
+                    ("Sin rol", totales["sin_rol_lecturas"]),
                 ]
                 _print_button(
                     _printable_html("Reporte de producción por DNI", sub, totals, df_dni),

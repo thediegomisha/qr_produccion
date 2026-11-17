@@ -49,17 +49,25 @@ def seeded(engine, session_factory):
         return {"lot_a": lot_a.id, "lot_b": lot_b.id}
 
 
-def test_mixed_alphanumeric_codes_are_classified_correctly(client, session_factory, engine):
-    """Cod_letra como 'A001' o 'M015' (letra+dígitos) debe clasificarse como selección,
-    y num_orden como '63' o '100' como empacada — el patrón anterior de solo-dígitos
-    las dejaba sin clasificar (total > empacadas + seleccionadas)."""
+def test_role_defines_classification_even_with_mixed_codes(client, session_factory, engine):
+    """El rol registrado manda: una empacadora con códigos de letra sigue siendo
+    empacadora, y un seleccionador con códigos numéricos sigue siendo seleccionador."""
     if engine.dialect.name != "postgresql":
         pytest.skip("El dashboard requiere PostgreSQL")
     lot_a = Lote(codigo="MIX-A", estado="ABIERTO")
     with session_factory() as db:
         db.add(lot_a)
         db.flush()
-        # Cod_letra con letra+dígitos (patrón real de producción)
+        db.add_all([
+            Trabajador(dni="11111111", nombre="ANA", apellido_paterno="PEREZ",
+                       apellido_materno=None, rol="EMPACADORA", num_orden=1,
+                       cod_letra="AAA", activo=True),
+            Trabajador(dni="22222222", nombre="LUIS", apellido_paterno="SOTO",
+                       apellido_materno=None, rol="SELECCIONADOR", num_orden=2,
+                       cod_letra="AAB", activo=True),
+        ])
+        # Códigos de letra para la empacadora y numéricos para el seleccionador:
+        # la forma del código no debe cambiar la clasificación.
         _make_scan(db, "mix1", "11111111", lot_a.id, datetime(2026, 1, 5, 17, 0, tzinfo=timezone.utc), "A001")
         _make_scan(db, "mix2", "11111111", lot_a.id, datetime(2026, 1, 5, 18, 0, tzinfo=timezone.utc), "M015")
         _make_scan(db, "mix3", "22222222", lot_a.id, datetime(2026, 1, 5, 17, 0, tzinfo=timezone.utc), "63")
@@ -68,11 +76,10 @@ def test_mixed_alphanumeric_codes_are_classified_correctly(client, session_facto
 
     rows = client.get("/api/dashboard/cajas-por-dia").json()["rows"]
     fila = next(r for r in rows if r["lote"] == "MIX-A")
-    # Con el patrón corregido: 2 empacadas (63, 100) + 2 seleccionadas (A001, M015) = 4 total
     assert fila["total"] == 4
     assert fila["empacadas"] == 2
     assert fila["seleccionadas"] == 2
-    # Antes el patrón estricto dejaba 2 sin clasificar (A001 y M015).
+    assert fila["sin_rol"] == 0
 
 
 def test_dashboard_rejects_operators(client, user):
@@ -113,13 +120,13 @@ def test_eficiencia_personal_computes_boxes_per_active_hour(client, seeded):
     assert abs(ana["cajas_por_hora"] - (3.0 / (2.0 + 1.0 / 60.0))) < 0.05
 
 
-def test_eficiencia_personal_separa_horas_por_tarea_en_una_misma_sesion(client, session_factory, seeded):
-    """Una persona puede empacar y luego seleccionar en la misma sesión.
-
-    El tipo de QR define la tarea de cada lectura, así que las horas y el ritmo
-    deben calcularse por tarea y no sobre la sesión completa.
-    """
+def test_eficiencia_personal_assigns_all_hours_to_registered_role(client, session_factory, seeded):
+    """El rol registrado define la tarea: todas las lecturas y horas de una persona
+    se asignan a ese rol, aunque el código impreso cambie de forma."""
     with session_factory() as db:
+        db.add(Trabajador(dni="33333333", nombre="CARLOS", apellido_paterno="QUISPE",
+                          apellido_materno=None, rol="EMPACADORA", num_orden=30,
+                          cod_letra="BDZ", activo=True))
         lot_a = db.get(Lote, seeded["lot_a"])
         base = datetime(2026, 1, 7, 17, 0, tzinfo=timezone.utc)  # 12:00 en Lima
         _make_scan(db, "m1", "33333333", lot_a.id, base, "10", session_uuid="mix-1")
@@ -130,22 +137,26 @@ def test_eficiencia_personal_separa_horas_por_tarea_en_una_misma_sesion(client, 
 
     rows = client.get("/api/dashboard/eficiencia-personal").json()["rows"]
     mixto = next(r for r in rows if r["dni"] == "33333333")
-    assert mixto["empacadas"] == 2 and mixto["seleccionadas"] == 2
+    assert mixto["rol_trabajador"] == "EMPACADORA"
+    # Aunque imprimió códigos con letra, su rol registrado manda.
+    assert mixto["empacadas"] == 4 and mixto["seleccionadas"] == 0
+    assert mixto["sin_rol"] == 0
     assert mixto["total_cajas"] == 4
     assert mixto["sesiones"] == 1 and mixto["dias_trabajados"] == 1
-    # Empacó de 12:00 a 13:00 y seleccionó de 14:00 a 15:00: 1 hora por tarea.
-    assert abs(mixto["horas_empacado"] - 1.0) < 0.01
-    assert abs(mixto["horas_seleccion"] - 1.0) < 0.01
+    assert abs(mixto["horas_empacado"] - 3.0) < 0.01
+    assert abs(mixto["horas_seleccion"] - 0.0) < 0.01
     assert abs(mixto["horas_activas"] - 3.0) < 0.01
-    assert abs(mixto["empacadas_por_hora"] - 2.0) < 0.05
-    assert abs(mixto["seleccionadas_por_hora"] - 2.0) < 0.05
-    assert abs(mixto["cajas_por_hora"] - (4.0 / 3.0)) < 0.05
+    assert abs(mixto["empacadas_por_hora"] - (4.0 / 3.0)) < 0.05
+    assert abs(mixto["seleccionadas_por_hora"] - 0.0) < 0.05
 
 
 def test_eficiencia_personal_mantiene_a_quien_solo_selecciona(client, session_factory, seeded):
     """Quien solo selecciona tiene empacadas=0 pero debe seguir apareciendo con
     sus cajas y su ritmo de selección (el dashboard lo oculta si solo rankea empacadas)."""
     with session_factory() as db:
+        db.add(Trabajador(dni="44444444", nombre="ROSA", apellido_paterno="FLORES",
+                          apellido_materno=None, rol="SELECCIONADOR", num_orden=44,
+                          cod_letra="BEA", activo=True))
         lot_a = db.get(Lote, seeded["lot_a"])
         base = datetime(2026, 1, 8, 17, 0, tzinfo=timezone.utc)  # 12:00 en Lima
         _make_scan(db, "s1", "44444444", lot_a.id, base, "AA", session_uuid="sel-1")
@@ -154,6 +165,7 @@ def test_eficiencia_personal_mantiene_a_quien_solo_selecciona(client, session_fa
 
     rows = client.get("/api/dashboard/eficiencia-personal").json()["rows"]
     selector = next(r for r in rows if r["dni"] == "44444444")
+    assert selector["rol_trabajador"] == "SELECCIONADOR"
     assert selector["empacadas"] == 0 and selector["seleccionadas"] == 2
     assert selector["total_cajas"] == 2
     assert abs(selector["horas_seleccion"] - 1.0) < 0.01

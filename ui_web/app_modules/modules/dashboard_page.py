@@ -12,7 +12,8 @@ import pandas as pd
 _COLOR_EMPACADAS = "#00b3f4"
 _COLOR_SELECCION = "#ffe08a"  # ámbar claro: visible pero secundario
 _COLOR_SELECCION_BAR = "#ffb100"  # ámbar fuerte para el ranking de selección
-_COLOR_KPI = ["#00b3f4", "#ffb100", "#9947ff", "#58cf42", "#ff4747"]
+_COLOR_SIN_ROL = "#9aa4b2"  # gris: lecturas sin rol registrado
+_COLOR_KPI = ["#00b3f4", "#ffb100", "#9947ff", "#58cf42", "#ff4747", "#9aa4b2"]
 _MEDALS = ["🥇", "🥈", "🥉"]
 _LEADER_COLORS = ["#FFD700", "#C0C0C0", "#CD7F32"]
 _TZ = "America/Lima"
@@ -75,8 +76,8 @@ def _leaderboard_html(
     rate: str = "empacadas_por_hora",
 ) -> str:
     """Ranking estilo Plecto para la tarea elegida (empacado o selección).
-    Una misma persona puede aparecer en ambos rankings: el tipo de QR define
-    la tarea de cada lectura, no el rol registrado del trabajador."""
+    El rol registrado del trabajador define a qué ranking pertenece; la forma
+    del código impreso no cambia la clasificación."""
     rows = []
     for rank, entry in enumerate(top.head(limit).itertuples()):
         medal = _MEDALS[rank] if rank < len(_MEDALS) else f"<b>{rank + 1}</b>"
@@ -99,7 +100,12 @@ def _activity_html(rows: list) -> str:
     """Feed de actividad reciente estilo Plecto: hora local, persona, lote y tipo."""
     items = []
     for row in rows:
-        color = _COLOR_EMPACADAS if row["tipo"] == "Empacada" else "#ffb100"
+        if row["tipo"] == "Empacada":
+            color = _COLOR_EMPACADAS
+        elif row["tipo"] == "Seleccionada":
+            color = _COLOR_SELECCION_BAR
+        else:
+            color = _COLOR_SIN_ROL
         hora = pd.to_datetime(row["scanned_at"], utc=True).tz_convert(_TZ).strftime("%H:%M:%S")
         items.append(
             f'<div style="display:flex;align-items:center;gap:10px;padding:6px 12px;margin:3px 0;'
@@ -225,6 +231,7 @@ def render(
         total = int(df_dia["total"].sum()) if not df_dia.empty else 0
         emp = int(df_dia["empacadas"].sum()) if not df_dia.empty else 0
         sel = int(df_dia["seleccionadas"].sum()) if not df_dia.empty else 0
+        sin_rol = int(df_dia["sin_rol"].sum()) if "sin_rol" in df_dia.columns else 0
         personas = len(eff_rows)
         dias = df_dia["dia"].nunique() if not df_dia.empty else 0
 
@@ -235,8 +242,9 @@ def render(
             ("Lecturas totales", total),
             ("Personas activas", personas),
             ("Días trabajados", int(dias)),
+            ("Sin rol", sin_rol),
         ]
-        kpi_columns = st.columns(5)
+        kpi_columns = st.columns(len(kpis))
         for column, (label, value), color in zip(kpi_columns, kpis, _COLOR_KPI):
             column.markdown(_kpi_card(label, value, color), unsafe_allow_html=True)
 
@@ -262,17 +270,23 @@ def render(
         # ---------- 2. Barras VERTICALES: cajas empacadas por lote ----------
         st.markdown("### Cajas empacadas por lote")
         st.caption("Producción empacada por lote — la base para formar pallets.")
-        per_lot = df_dia.groupby("lote", as_index=False)[["empacadas", "seleccionadas"]].sum()
-        per_lot["total"] = per_lot["empacadas"] + per_lot["seleccionadas"]
+        # El total sale de la API (incluye lecturas sin rol) para que la tabla y
+        # los KPIs nunca difieran de la suma de sus columnas.
+        per_lot = df_dia.groupby("lote", as_index=False)[["empacadas", "seleccionadas", "total"]].sum()
+        per_lot["sin_rol"] = per_lot["total"] - per_lot["empacadas"] - per_lot["seleccionadas"]
         per_lot = per_lot.sort_values("empacadas", ascending=False)
 
+        tipos_lote = ["Empacadas", "Selección"] + (["Sin rol"] if per_lot["sin_rol"].sum() else [])
+        value_vars = ["empacadas", "seleccionadas"] + (["sin_rol"] if "Sin rol" in tipos_lote else [])
         series = per_lot.melt(
             id_vars="lote",
-            value_vars=["empacadas", "seleccionadas"],
+            value_vars=value_vars,
             var_name="tipo",
             value_name="cajas",
         )
-        series["tipo"] = series["tipo"].map({"empacadas": "Empacadas", "seleccionadas": "Selección"})
+        series["tipo"] = series["tipo"].map(
+            {"empacadas": "Empacadas", "seleccionadas": "Selección", "sin_rol": "Sin rol"}
+        )
 
         chart_lot = (
             alt.Chart(series)
@@ -280,12 +294,12 @@ def render(
             .encode(
                 x=alt.X("lote:N", sort=list(per_lot["lote"]), title="Lote", axis=alt.Axis(labelAngle=-25)),
                 y=alt.Y("cajas:Q", title="Cajas"),
-                xOffset=alt.XOffset("tipo:N", sort=["Empacadas", "Selección"]),
+                xOffset=alt.XOffset("tipo:N", sort=tipos_lote),
                 color=alt.Color(
                     "tipo:N",
                     scale=alt.Scale(
-                        domain=["Empacadas", "Selección"],
-                        range=[_COLOR_EMPACADAS, _COLOR_SELECCION],
+                        domain=tipos_lote,
+                        range=[_COLOR_EMPACADAS, _COLOR_SELECCION, _COLOR_SIN_ROL][:len(tipos_lote)],
                     ),
                     title="Tipo",
                 ),
@@ -295,7 +309,7 @@ def render(
         )
         st.altair_chart(chart_lot, width="stretch")
         st.dataframe(
-            per_lot[["lote", "empacadas", "seleccionadas", "total"]],
+            per_lot[["lote", "empacadas", "seleccionadas", "sin_rol", "total"]],
             hide_index=True,
             width="stretch",
         )
@@ -304,10 +318,11 @@ def render(
         col_donut, col_horas = st.columns([1, 2])
         with col_donut:
             st.markdown("#### Distribución")
-            tipo_df = pd.DataFrame([
-                {"tipo": "Empacadas", "cajas": emp},
-                {"tipo": "Selección", "cajas": sel},
-            ])
+            tipos_dona = [{"tipo": "Empacadas", "cajas": emp}, {"tipo": "Selección", "cajas": sel}]
+            if sin_rol:
+                tipos_dona.append({"tipo": "Sin rol", "cajas": sin_rol})
+            tipo_df = pd.DataFrame(tipos_dona)
+            dominios_dona = [d["tipo"] for d in tipos_dona]
             donut = (
                 alt.Chart(tipo_df)
                 .mark_arc(innerRadius=64, outerRadius=100)
@@ -316,8 +331,8 @@ def render(
                     color=alt.Color(
                         "tipo:N",
                         scale=alt.Scale(
-                            domain=["Empacadas", "Selección"],
-                            range=[_COLOR_EMPACADAS, _COLOR_SELECCION],
+                            domain=dominios_dona,
+                            range=[_COLOR_EMPACADAS, _COLOR_SELECCION, _COLOR_SIN_ROL][:len(dominios_dona)],
                         ),
                         legend=None,
                     ),
@@ -331,21 +346,28 @@ def render(
             )
             st.altair_chart((donut + centro).properties(height=220), width="stretch")
             pct_emp = (emp / total * 100) if total else 0
-            st.caption(f"🔵 **{emp}** empacadas ({pct_emp:.0f}%) · 🟠 {sel} selección")
+            resumen_dona = f"🔵 **{emp}** empacadas ({pct_emp:.0f}%) · 🟠 {sel} selección"
+            if sin_rol:
+                resumen_dona += f" · ⚪ {sin_rol} sin rol"
+            st.caption(resumen_dona)
 
         with col_horas:
             st.markdown("#### Ritmo por hora del día")
             if df_horas.empty:
                 st.caption("Sin lecturas en el rango para mostrar el ritmo horario.")
             else:
+                tipos_hora = ["Empacadas", "Selección"] + (
+                    ["Sin rol"] if "sin_rol" in df_horas.columns and df_horas["sin_rol"].sum() else []
+                )
+                vars_hora = ["empacadas", "seleccionadas"] + (["sin_rol"] if "Sin rol" in tipos_hora else [])
                 horas_series = df_horas.melt(
                     id_vars="hora",
-                    value_vars=["empacadas", "seleccionadas"],
+                    value_vars=vars_hora,
                     var_name="tipo",
                     value_name="cajas",
                 )
                 horas_series["tipo"] = horas_series["tipo"].map(
-                    {"empacadas": "Empacadas", "seleccionadas": "Selección"}
+                    {"empacadas": "Empacadas", "seleccionadas": "Selección", "sin_rol": "Sin rol"}
                 )
                 chart_horas = (
                     alt.Chart(horas_series)
@@ -357,12 +379,12 @@ def render(
                             axis=alt.Axis(labelExpr="datum.value + ':00'"),
                         ),
                         y=alt.Y("cajas:Q", title="Cajas"),
-                        xOffset=alt.XOffset("tipo:N", sort=["Empacadas", "Selección"]),
+                        xOffset=alt.XOffset("tipo:N", sort=tipos_hora),
                         color=alt.Color(
                             "tipo:N",
                             scale=alt.Scale(
-                                domain=["Empacadas", "Selección"],
-                                range=[_COLOR_EMPACADAS, _COLOR_SELECCION],
+                                domain=tipos_hora,
+                                range=[_COLOR_EMPACADAS, _COLOR_SELECCION, _COLOR_SIN_ROL][:len(tipos_hora)],
                             ),
                             title="Tipo",
                         ),
@@ -385,11 +407,11 @@ def render(
             return
 
         st.caption(
-            "El tipo de QR define la tarea de cada lectura: **número = empacado**, "
-            "**letra = selección**. Una misma persona puede aparecer en ambos rankings "
-            "si durante la jornada empacó y luego seleccionó. Eficiencia = cajas por hora "
-            "activa de esa tarea (primera a última lectura de cada bloque de tarea, "
-            "mínimo 1 minuto)."
+            "El **rol registrado** del trabajador define la tarea: EMPACADORA cuenta "
+            "como empacado y SELECCIONADOR como selección, sin importar si el código "
+            "impreso tiene números o letras. Las lecturas de personas sin rol "
+            "registrado se muestran aparte como **Sin rol**. Eficiencia = cajas por "
+            "hora activa del rol (primera a última lectura, mínimo 1 minuto)."
         )
 
         rol_ranking = st.radio(
@@ -445,10 +467,13 @@ def render(
             st.altair_chart(chart_cajas, width="stretch")
 
         # Tabla completa (ambas tareas) para ver quién cambió de tarea en la jornada.
+        if "sin_rol" not in df_eff.columns:
+            df_eff["sin_rol"] = 0
         personal_cols = [
-            "dni", "persona", "rol_trabajador", "empacadas", "seleccionadas", "total_cajas",
-            "dias_trabajados", "sesiones", "horas_activas", "horas_empacado", "horas_seleccion",
-            "empacadas_por_hora", "seleccionadas_por_hora", "cajas_por_hora",
+            "dni", "persona", "rol_trabajador", "empacadas", "seleccionadas", "sin_rol",
+            "total_cajas", "dias_trabajados", "sesiones", "horas_activas",
+            "horas_empacado", "horas_seleccion", "empacadas_por_hora",
+            "seleccionadas_por_hora", "cajas_por_hora",
         ]
         tabla_personal = (
             df_eff.sort_values("total_cajas", ascending=False)
@@ -464,7 +489,7 @@ def render(
         sub = [
             alcance,
             f"Lote: {lote_filter}",
-            f"Cajas empacadas: {emp} | Selección: {sel} | Lecturas totales: {total}",
+            f"Cajas empacadas: {emp} | Selección: {sel} | Sin rol: {sin_rol} | Lecturas totales: {total}",
         ]
         from app_modules.modules.export_utils import excel_bytes, print_button, printable_html
         import json as _json
@@ -476,7 +501,7 @@ def render(
             with pd.ExcelWriter(buf, engine="openpyxl") as writer:
                 info = pd.DataFrame({"Detalle": ["Dashboard de producción"] + sub + ["", f"Generado por: {user} — {datetime.now().strftime('%d/%m/%Y %H:%M')}"]})
                 info.to_excel(writer, sheet_name="Resumen", index=False, header=False)
-                per_lot_export = per_lot[["lote", "empacadas", "seleccionadas", "total"]].sort_values("empacadas", ascending=False)
+                per_lot_export = per_lot[["lote", "empacadas", "seleccionadas", "sin_rol", "total"]].sort_values("empacadas", ascending=False)
                 per_lot_export.to_excel(writer, sheet_name="Por lote", index=False)
                 if not df_eff.empty:
                     tabla_personal.to_excel(writer, sheet_name="Por persona", index=False)
@@ -488,11 +513,12 @@ def render(
                 key="dash_excel",
             )
         with c_print:
-            tables = [("Cajas empacadas por lote", per_lot[["lote", "empacadas", "seleccionadas", "total"]].sort_values("empacadas", ascending=False))]
+            tables = [("Cajas empacadas por lote", per_lot[["lote", "empacadas", "seleccionadas", "sin_rol", "total"]].sort_values("empacadas", ascending=False))]
             if not df_eff.empty:
                 tables.append(("Eficiencia del personal", tabla_personal))
             if not df_horas.empty:
-                tables.append(("Ritmo por hora", df_horas[["hora", "empacadas", "seleccionadas", "total"]]))
+                cols_horas = ["hora", "empacadas", "seleccionadas"] + (["sin_rol"] if "sin_rol" in df_horas.columns else []) + ["total"]
+                tables.append(("Ritmo por hora", df_horas[cols_horas]))
             print_button(
                 printable_html("Dashboard de producción", sub, tables, user),
                 "Dash", st,

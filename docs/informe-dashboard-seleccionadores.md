@@ -5,6 +5,14 @@
 **Alcance:** ranking de eficiencia del personal en el dashboard
 **Estado:** corregido (backend + UI + pruebas)
 
+> **Actualización 2026-11-16 — regla de clasificación reemplazada.** Por decisión
+> de operaciones se adoptó la **Opción A**: la tarea de una lectura se toma del
+> **rol registrado** del trabajador (`trabajadores.rol`), no de la forma del código
+> impreso. `EMPACADOR`/`EMPACADORA` cuenta como empacado y `SELECCIONADOR` como
+> selección; las lecturas sin rol se agrupan en `sin_rol`. Este informe se conserva
+> como registro histórico del incidente; la regla vigente está documentada en
+> [`dashboard.md`](dashboard.md#tarea-y-rol-el-rol-registrado-define-la-tarea).
+
 ## 1. Resumen ejecutivo
 
 El dashboard no mostraba seleccionadores por un problema **de presentación**, no de
