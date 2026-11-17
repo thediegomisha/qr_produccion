@@ -311,7 +311,7 @@ def render(
             x1, x2 = st.columns(2)
             with x1:
                 sub = _report_subtitle(st.session_state.get("rep_dni_filtro") or filtro_label,
-                                       "Clasificación por rol registrado del trabajador",
+                                       "Clasificación por código QR: número = empacado; letra = selección",
                                        dni_data.get("producto") or "", get_user(st))
                 _exportar_excel(st, x1, sub, df_dni, "reporte_dni",
                                 st.session_state.get("rep_dni_filtro") or "global", "rep_dni_excel")

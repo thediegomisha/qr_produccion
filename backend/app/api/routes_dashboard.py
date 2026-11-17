@@ -47,9 +47,9 @@ def cajas_por_dia(
             (scanned_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date AS dia,
             lote,
             COUNT(*)::int AS total,
-            COUNT(*) FILTER (WHERE rol LIKE 'EMPACADOR%')::int AS empacadas,
-            COUNT(*) FILTER (WHERE rol = 'SELECCIONADOR')::int AS seleccionadas,
-            COUNT(*) FILTER (WHERE rol NOT LIKE 'EMPACADOR%' AND rol <> 'SELECCIONADOR')::int AS sin_rol
+            COUNT(*) FILTER (WHERE tarea = 'EMPACADO')::int AS empacadas,
+            COUNT(*) FILTER (WHERE tarea = 'SELECCION')::int AS seleccionadas,
+            COUNT(*) FILTER (WHERE tarea = 'SIN CLASIFICAR')::int AS sin_rol
         FROM base
         GROUP BY dia, lote
         ORDER BY dia, lote
@@ -88,9 +88,8 @@ def eficiencia_personal(
     date_from = _clean_optional(date_from)
     date_to = _clean_optional(date_to)
 
-    # El rol registrado del trabajador define la tarea. Todas sus lecturas y sus
-    # horas activas se asignan a ese rol, aunque la etiqueta se haya impreso con
-    # número o con letra.
+    # Separar las horas por tarea del QR, aunque una persona haga ambas tareas.
+    # El rol registrado se conserva como metadato, nunca como clasificador.
     sql = text(f"""
         {production_cte()},
         sesiones AS (
@@ -102,9 +101,9 @@ def eficiencia_personal(
                 MIN(persona) AS persona,
                 MIN(rol) AS rol,
                 COUNT(*)::int AS cajas,
-                COUNT(*) FILTER (WHERE rol LIKE 'EMPACADOR%')::int AS empacadas,
-                COUNT(*) FILTER (WHERE rol = 'SELECCIONADOR')::int AS seleccionadas,
-                COUNT(*) FILTER (WHERE rol NOT LIKE 'EMPACADOR%' AND rol <> 'SELECCIONADOR')::int AS sin_rol,
+                COUNT(*) FILTER (WHERE tarea = 'EMPACADO')::int AS empacadas,
+                COUNT(*) FILTER (WHERE tarea = 'SELECCION')::int AS seleccionadas,
+                COUNT(*) FILTER (WHERE tarea = 'SIN CLASIFICAR')::int AS sin_rol,
                 MIN(scanned_at) AS primera,
                 MAX(scanned_at) AS ultima
             FROM base
@@ -133,7 +132,7 @@ def eficiencia_personal(
         tareas AS (
             SELECT
                 dni,
-                rol,
+                tarea,
                 SUM(
                     CASE WHEN EXTRACT(EPOCH FROM (ultima - primera))::float / 3600 <= 0
                          THEN 1.0 / 60.0
@@ -143,15 +142,16 @@ def eficiencia_personal(
             FROM (
                 SELECT
                     dni,
+                    user_id,
                     session_uuid,
                     (scanned_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date AS dia,
-                    rol,
+                    tarea,
                     MIN(scanned_at) AS primera,
                     MAX(scanned_at) AS ultima
                 FROM base
-                GROUP BY dni, session_uuid, dia, rol
+                GROUP BY dni, user_id, session_uuid, dia, tarea
             ) tarea_sesion
-            GROUP BY dni, rol
+            GROUP BY dni, tarea
         )
         SELECT
             p.dni,
@@ -170,8 +170,8 @@ def eficiencia_personal(
             COALESCE(ROUND((p.empacadas::float / NULLIF(te.horas, 0))::numeric, 1)::float, 0) AS empacadas_por_hora,
             COALESCE(ROUND((p.seleccionadas::float / NULLIF(ts.horas, 0))::numeric, 1)::float, 0) AS seleccionadas_por_hora
         FROM por_persona p
-        LEFT JOIN tareas te ON te.dni = p.dni AND te.rol LIKE 'EMPACADOR%'
-        LEFT JOIN tareas ts ON ts.dni = p.dni AND ts.rol = 'SELECCIONADOR'
+        LEFT JOIN tareas te ON te.dni = p.dni AND te.tarea = 'EMPACADO'
+        LEFT JOIN tareas ts ON ts.dni = p.dni AND ts.tarea = 'SELECCION'
         ORDER BY total_cajas DESC
     """)
 
@@ -216,9 +216,9 @@ def eficiencia_por_dia(
             MIN(persona) AS persona,
             MIN(rol) AS rol,
             COUNT(*)::int AS total_cajas,
-            COUNT(*) FILTER (WHERE rol LIKE 'EMPACADOR%')::int AS empacadas,
-            COUNT(*) FILTER (WHERE rol = 'SELECCIONADOR')::int AS seleccionadas,
-            COUNT(*) FILTER (WHERE rol NOT LIKE 'EMPACADOR%' AND rol <> 'SELECCIONADOR')::int AS sin_rol
+            COUNT(*) FILTER (WHERE tarea = 'EMPACADO')::int AS empacadas,
+            COUNT(*) FILTER (WHERE tarea = 'SELECCION')::int AS seleccionadas,
+            COUNT(*) FILTER (WHERE tarea = 'SIN CLASIFICAR')::int AS sin_rol
         FROM base
         GROUP BY dia, dni
         ORDER BY dia, total_cajas DESC
@@ -262,9 +262,9 @@ def cajas_por_hora(
         SELECT
             EXTRACT(HOUR FROM (scanned_at AT TIME ZONE 'UTC' AT TIME ZONE :tz))::int AS hora,
             COUNT(*)::int AS total,
-            COUNT(*) FILTER (WHERE rol LIKE 'EMPACADOR%')::int AS empacadas,
-            COUNT(*) FILTER (WHERE rol = 'SELECCIONADOR')::int AS seleccionadas,
-            COUNT(*) FILTER (WHERE rol NOT LIKE 'EMPACADOR%' AND rol <> 'SELECCIONADOR')::int AS sin_rol
+            COUNT(*) FILTER (WHERE tarea = 'EMPACADO')::int AS empacadas,
+            COUNT(*) FILTER (WHERE tarea = 'SELECCION')::int AS seleccionadas,
+            COUNT(*) FILTER (WHERE tarea = 'SIN CLASIFICAR')::int AS sin_rol
         FROM base
         GROUP BY hora
         ORDER BY hora
@@ -311,9 +311,9 @@ def produccion_persona_lote(
             lote,
             MIN(rol) AS rol,
             COUNT(*)::int AS total,
-            COUNT(*) FILTER (WHERE rol LIKE 'EMPACADOR%')::int AS empacadas,
-            COUNT(*) FILTER (WHERE rol = 'SELECCIONADOR')::int AS seleccionadas,
-            COUNT(*) FILTER (WHERE rol NOT LIKE 'EMPACADOR%' AND rol <> 'SELECCIONADOR')::int AS sin_rol
+            COUNT(*) FILTER (WHERE tarea = 'EMPACADO')::int AS empacadas,
+            COUNT(*) FILTER (WHERE tarea = 'SELECCION')::int AS seleccionadas,
+            COUNT(*) FILTER (WHERE tarea = 'SIN CLASIFICAR')::int AS sin_rol
         FROM base
         GROUP BY dni, lote
         ORDER BY persona, total DESC
@@ -357,8 +357,8 @@ def actividad_reciente(
             persona,
             lote,
             CASE
-                WHEN rol LIKE 'EMPACADOR%' THEN 'Empacada'
-                WHEN rol = 'SELECCIONADOR' THEN 'Seleccionada'
+                WHEN tarea = 'EMPACADO' THEN 'Empacada'
+                WHEN tarea = 'SELECCION' THEN 'Seleccionada'
                 ELSE 'Sin rol'
             END AS tipo,
             scanned_at

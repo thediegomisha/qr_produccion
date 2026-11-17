@@ -49,9 +49,8 @@ def seeded(engine, session_factory):
         return {"lot_a": lot_a.id, "lot_b": lot_b.id}
 
 
-def test_role_defines_classification_even_with_mixed_codes(client, session_factory, engine):
-    """El rol registrado manda: una empacadora con códigos de letra sigue siendo
-    empacadora, y un seleccionador con códigos numéricos sigue siendo seleccionador."""
+def test_code_defines_classification_even_when_registered_role_differs(client, session_factory, engine):
+    """Las letras cuentan como selección y los números como empacado."""
     if engine.dialect.name != "postgresql":
         pytest.skip("El dashboard requiere PostgreSQL")
     lot_a = Lote(codigo="MIX-A", estado="ABIERTO")
@@ -67,7 +66,7 @@ def test_role_defines_classification_even_with_mixed_codes(client, session_facto
                        cod_letra="AAB", activo=True),
         ])
         # Códigos de letra para la empacadora y numéricos para el seleccionador:
-        # la forma del código no debe cambiar la clasificación.
+        # la forma del código debe definir la tarea, no el rol registrado.
         _make_scan(db, "mix1", "11111111", lot_a.id, datetime(2026, 1, 5, 17, 0, tzinfo=timezone.utc), "A001")
         _make_scan(db, "mix2", "11111111", lot_a.id, datetime(2026, 1, 5, 18, 0, tzinfo=timezone.utc), "M015")
         _make_scan(db, "mix3", "22222222", lot_a.id, datetime(2026, 1, 5, 17, 0, tzinfo=timezone.utc), "63")
@@ -80,6 +79,13 @@ def test_role_defines_classification_even_with_mixed_codes(client, session_facto
     assert fila["empacadas"] == 2
     assert fila["seleccionadas"] == 2
     assert fila["sin_rol"] == 0
+    by_dni = {
+        row["dni"]: row for row in client.get("/api/dashboard/eficiencia-personal").json()["rows"]
+    }
+    assert by_dni["11111111"]["seleccionadas"] == 2
+    assert by_dni["11111111"]["empacadas"] == 0
+    assert by_dni["22222222"]["empacadas"] == 2
+    assert by_dni["22222222"]["seleccionadas"] == 0
 
 
 def test_dashboard_rejects_operators(client, user):
@@ -120,9 +126,8 @@ def test_eficiencia_personal_computes_boxes_per_active_hour(client, seeded):
     assert abs(ana["cajas_por_hora"] - (3.0 / (2.0 + 1.0 / 60.0))) < 0.05
 
 
-def test_eficiencia_personal_assigns_all_hours_to_registered_role(client, session_factory, seeded):
-    """El rol registrado define la tarea: todas las lecturas y horas de una persona
-    se asignan a ese rol, aunque el código impreso cambie de forma."""
+def test_eficiencia_personal_separates_hours_for_both_tasks(client, session_factory, seeded):
+    """Cada tarea conserva sus lecturas y horas aunque pertenezcan al mismo DNI."""
     with session_factory() as db:
         db.add(Trabajador(dni="33333333", nombre="CARLOS", apellido_paterno="QUISPE",
                           apellido_materno=None, rol="EMPACADORA", num_orden=30,
@@ -138,16 +143,15 @@ def test_eficiencia_personal_assigns_all_hours_to_registered_role(client, sessio
     rows = client.get("/api/dashboard/eficiencia-personal").json()["rows"]
     mixto = next(r for r in rows if r["dni"] == "33333333")
     assert mixto["rol_trabajador"] == "EMPACADORA"
-    # Aunque imprimió códigos con letra, su rol registrado manda.
-    assert mixto["empacadas"] == 4 and mixto["seleccionadas"] == 0
+    assert mixto["empacadas"] == 2 and mixto["seleccionadas"] == 2
     assert mixto["sin_rol"] == 0
     assert mixto["total_cajas"] == 4
     assert mixto["sesiones"] == 1 and mixto["dias_trabajados"] == 1
-    assert abs(mixto["horas_empacado"] - 3.0) < 0.01
-    assert abs(mixto["horas_seleccion"] - 0.0) < 0.01
+    assert abs(mixto["horas_empacado"] - 1.0) < 0.01
+    assert abs(mixto["horas_seleccion"] - 1.0) < 0.01
     assert abs(mixto["horas_activas"] - 3.0) < 0.01
-    assert abs(mixto["empacadas_por_hora"] - (4.0 / 3.0)) < 0.05
-    assert abs(mixto["seleccionadas_por_hora"] - 0.0) < 0.05
+    assert abs(mixto["empacadas_por_hora"] - 2.0) < 0.05
+    assert abs(mixto["seleccionadas_por_hora"] - 2.0) < 0.05
 
 
 def test_eficiencia_personal_mantiene_a_quien_solo_selecciona(client, session_factory, seeded):

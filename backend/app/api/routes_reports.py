@@ -144,9 +144,9 @@ def dni_summary(
           FILTER (WHERE codigo IS NOT NULL),
         ''
       ) AS codigo,
-      COUNT(*) FILTER (WHERE rol LIKE 'EMPACADOR%') AS empacador,
-      COUNT(*) FILTER (WHERE rol = 'SELECCIONADOR') AS seleccionador,
-      COUNT(*) FILTER (WHERE rol NOT LIKE 'EMPACADOR%' AND rol <> 'SELECCIONADOR') AS sin_rol,
+      COUNT(*) FILTER (WHERE tarea = 'EMPACADO') AS empacador,
+      COUNT(*) FILTER (WHERE tarea = 'SELECCION') AS seleccionador,
+      COUNT(*) FILTER (WHERE tarea = 'SIN CLASIFICAR') AS sin_rol,
       COUNT(*) AS total
     FROM base
     GROUP BY dni, persona

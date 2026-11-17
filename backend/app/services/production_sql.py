@@ -1,8 +1,8 @@
 """Consulta base compartida para los reportes de producción.
 
-La clasificación de una lectura se hace por el rol registrado del trabajador
-(EMPACADORA / SELECCIONADOR), no por la forma del código impreso. El código
-visible se conserva solo para trazabilidad.
+La tarea se clasifica por el código impreso: inicio numérico = empacado,
+inicio con letra = selección. El rol registrado es solo información del trabajador;
+un mismo DNI puede participar en ambas tareas.
 
 La base también resuelve el DNI y el producto desde ``qr_emitidos`` cuando el
 token existe, para no depender de un ``raw`` incompleto o manipulado.
@@ -55,7 +55,18 @@ PRODUCTION_FILTERS_SQL = """
 
 def production_cte() -> str:
     """Devuelve el CTE ``base`` listo para prefijar una consulta."""
-    return f"WITH base AS ({PRODUCTION_BASE_SQL} {PRODUCTION_FILTERS_SQL})"
+    return f"""
+        WITH lecturas AS ({PRODUCTION_BASE_SQL} {PRODUCTION_FILTERS_SQL}),
+        base AS (
+            SELECT lecturas.*,
+                CASE
+                    WHEN codigo ~ '^[0-9]' THEN 'EMPACADO'
+                    WHEN codigo ~ '^[A-Za-z]' THEN 'SELECCION'
+                    ELSE 'SIN CLASIFICAR'
+                END AS tarea
+            FROM lecturas
+        )
+    """
 
 
 def production_params(

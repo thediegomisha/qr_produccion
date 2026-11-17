@@ -12,7 +12,7 @@ import pandas as pd
 _COLOR_EMPACADAS = "#00b3f4"
 _COLOR_SELECCION = "#ffe08a"  # ámbar claro: visible pero secundario
 _COLOR_SELECCION_BAR = "#ffb100"  # ámbar fuerte para el ranking de selección
-_COLOR_SIN_ROL = "#9aa4b2"  # gris: lecturas sin rol registrado
+_COLOR_SIN_ROL = "#9aa4b2"  # gris: lecturas sin código clasificable
 _COLOR_KPI = ["#00b3f4", "#ffb100", "#9947ff", "#58cf42", "#ff4747", "#9aa4b2"]
 _MEDALS = ["🥇", "🥈", "🥉"]
 _LEADER_COLORS = ["#FFD700", "#C0C0C0", "#CD7F32"]
@@ -76,8 +76,8 @@ def _leaderboard_html(
     rate: str = "empacadas_por_hora",
 ) -> str:
     """Ranking estilo Plecto para la tarea elegida (empacado o selección).
-    El rol registrado del trabajador define a qué ranking pertenece; la forma
-    del código impreso no cambia la clasificación."""
+    La tarea se determina por el código del QR; una persona puede aparecer
+    en ambos rankings independientemente de su rol registrado."""
     rows = []
     for rank, entry in enumerate(top.head(limit).itertuples()):
         medal = _MEDALS[rank] if rank < len(_MEDALS) else f"<b>{rank + 1}</b>"
@@ -407,11 +407,11 @@ def render(
             return
 
         st.caption(
-            "El **rol registrado** del trabajador define la tarea: EMPACADORA cuenta "
-            "como empacado y SELECCIONADOR como selección, sin importar si el código "
-            "impreso tiene números o letras. Las lecturas de personas sin rol "
-            "registrado se muestran aparte como **Sin rol**. Eficiencia = cajas por "
-            "hora activa del rol (primera a última lectura, mínimo 1 minuto)."
+            "El **código del QR** define la tarea: si comienza con número cuenta "
+            "como empacado; si comienza con letra, como selección. Una persona puede "
+            "aparecer en ambos rankings. Las lecturas sin código clasificable se "
+            "muestran como **Sin rol**. Eficiencia = cajas por hora activa de cada "
+            "tarea (primera a última lectura, mínimo 1 minuto)."
         )
 
         rol_ranking = st.radio(

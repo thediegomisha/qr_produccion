@@ -1,6 +1,8 @@
+from datetime import datetime
+
 import pytest
 
-from app.db.models import Trabajador, QREmitido
+from app.db.models import Trabajador, QREmitido, Lote, ScanEvent
 
 
 @pytest.mark.parametrize("role", ["ROOT", "GERENCIA", "SUPERVISOR", "OPERADOR", "AGENTE", "VIGILANCIA"])
@@ -29,9 +31,11 @@ def test_all_users_see_consolidated_lot_and_new_uploads(client, user, role, sess
     assert response.status_code == 200
     assert response.json()["scanned_by"] is None
     assert response.json()["totals"]["total_lecturas"] == 2
-    assert response.json()["totals"]["sin_rol_lecturas"] == 2
+    assert response.json()["totals"]["emp_lecturas"] == 2
+    assert response.json()["totals"]["sin_rol_lecturas"] == 0
     assert response.json()["rows"][0]["total"] == 2
-    assert response.json()["rows"][0]["sin_rol"] == 2
+    assert response.json()["rows"][0]["empacador"] == 2
+    assert response.json()["rows"][0]["sin_rol"] == 0
     assert response.json()["rows"][0]["codigo"] == "12"
     operators = client.get("/api/reports/operator-summary", params=params).json()
     assert {row["user_id"] for row in operators["rows"]} == {"angel", "ddiaz"}
@@ -80,18 +84,18 @@ def test_lot_report_without_dates_includes_all_days_and_distinct_worker_codes(cl
     data = client.get("/api/reports/dni-summary", params={"lote_codigo": "LOTE-MULTIDIA"}).json()
     assert data["date_from"] is None and data["date_to"] is None
     assert data["totals"]["total_lecturas"] == 2
-    assert data["totals"]["emp_lecturas"] == 2
-    assert data["totals"]["sel_lecturas"] == 0
+    assert data["totals"]["emp_lecturas"] == 1
+    assert data["totals"]["sel_lecturas"] == 1
     assert data["totals"]["sin_rol_lecturas"] == 0
     assert data["rows"][0]["codigo"] == "007, A"
     assert data["rows"][0]["rol"] == "EMPACADORA"
-    assert data["rows"][0]["empacador"] == 2
-    assert data["rows"][0]["seleccionador"] == 0
+    assert data["rows"][0]["empacador"] == 1
+    assert data["rows"][0]["seleccionador"] == 1
     assert data["rows"][0]["sin_rol"] == 0
 
 
-def test_role_classification_is_independent_of_printed_code(client, session_factory):
-    """Una empacadora sigue siendo empacadora aunque imprima códigos de letra."""
+def test_printed_code_classifies_both_tasks_for_each_registered_role(client, session_factory):
+    """Un mismo DNI debe conservar empacado y selección, cualquiera sea su rol."""
     _worker(session_factory, "11111111", "EMPACADORA", 1, "AAA", nombre="ANA")
     _worker(session_factory, "22222222", "SELECCIONADOR", 2, "AAB", nombre="LUIS", apellido="SOTO")
 
@@ -108,10 +112,10 @@ def test_role_classification_is_independent_of_printed_code(client, session_fact
         "sin_rol_lecturas": 0,
     }
     by_dni = {row["dni"]: row for row in data["rows"]}
-    assert by_dni["11111111"]["empacador"] == 2
-    assert by_dni["11111111"]["seleccionador"] == 0
-    assert by_dni["22222222"]["empacador"] == 0
-    assert by_dni["22222222"]["seleccionador"] == 2
+    assert by_dni["11111111"]["empacador"] == 1
+    assert by_dni["11111111"]["seleccionador"] == 1
+    assert by_dni["22222222"]["empacador"] == 1
+    assert by_dni["22222222"]["seleccionador"] == 1
 
     # Totales y tabla deben salir del mismo conjunto.
     assert sum(row["total"] for row in data["rows"]) == data["totals"]["total_lecturas"]
@@ -130,9 +134,44 @@ def test_missing_raw_is_counted_and_codes_are_trimmed(client, session_factory):
 
     data = client.get("/api/reports/dni-summary", params={"lote_codigo": "LOTE-NORMALIZA"}).json()
     assert data["totals"]["total_lecturas"] == 2
-    assert data["totals"]["emp_lecturas"] == 2
-    assert data["totals"]["sin_rol_lecturas"] == 0
+    assert data["totals"]["emp_lecturas"] == 1
+    assert data["totals"]["sin_rol_lecturas"] == 1
     assert data["rows"][0]["codigo"] == "001"
 
     operators = client.get("/api/reports/operator-summary", params={"lote_codigo": "LOTE-NORMALIZA"}).json()
     assert sum(row["total"] for row in operators["rows"]) == data["totals"]["total_lecturas"]
+
+
+def test_all_views_classify_codes_without_worker_record_and_keep_unknowns(client, session_factory, engine):
+    if engine.dialect.name != "postgresql":
+        pytest.skip("Los reportes requieren PostgreSQL")
+    with session_factory() as db:
+        lot = Lote(codigo="CODIGOS", estado="ABIERTO")
+        db.add(lot)
+        db.flush()
+        for index, marker in enumerate([" 001 ", " aa ", "B9", "?", "", None]):
+            db.add(ScanEvent(
+                token=f"class-{index}", dni="87654321", lote_id=lot.id,
+                raw={"id": marker, "p": "UVA"}, scanned_at=datetime(2026, 1, 5, 17),
+                user_id="op", session_uuid="codes",
+            ))
+        db.commit()
+    result = client.get("/api/reports/dni-summary", params={"lote_codigo": "CODIGOS", "producto": "UVA"}).json()
+    assert result["totals"] == {
+        "total_lecturas": 6, "emp_lecturas": 1, "sel_lecturas": 2, "sin_rol_lecturas": 3,
+    }
+    for endpoint in (
+        "cajas-por-dia", "cajas-por-hora", "eficiencia-personal",
+        "eficiencia-por-dia", "produccion-persona-lote",
+    ):
+        response = client.get(f"/api/dashboard/{endpoint}", params={"lote_codigo": "CODIGOS"})
+        assert response.status_code == 200
+        rows = response.json()["rows"]
+        assert sum(row["empacadas"] for row in rows) == 1
+        assert sum(row["seleccionadas"] for row in rows) == 2
+        assert sum(row["sin_rol"] for row in rows) == 3
+        assert sum(row.get("total", row.get("total_cajas", 0)) for row in rows) == 6
+    recent = client.get("/api/dashboard/actividad-reciente", params={"lote_codigo": "CODIGOS"}).json()["rows"]
+    assert [row["tipo"] for row in recent].count("Empacada") == 1
+    assert [row["tipo"] for row in recent].count("Seleccionada") == 2
+    assert [row["tipo"] for row in recent].count("Sin rol") == 3
