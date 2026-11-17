@@ -1,11 +1,14 @@
 import pytest
 
-from app.db.models import Trabajador
+from app.db.models import Trabajador, QREmitido
 
 
 @pytest.mark.parametrize("role", ["ROOT", "GERENCIA", "SUPERVISOR", "OPERADOR", "AGENTE", "VIGILANCIA"])
-def test_all_users_see_consolidated_lot_and_new_uploads(client, user, role):
+def test_all_users_see_consolidated_lot_and_new_uploads(client, user, role, session_factory):
     def upload(operator, token, lot="LOTE-COMPARTIDO"):
+        with session_factory() as db:
+            db.add(QREmitido(token=token, dni_trabajador="12345678", nn="12", producto="UVA"))
+            db.commit()
         user.update(usuario=operator, rol="OPERADOR")
         response = client.post("/api/scans/batch", json={
             "batch_uuid": f"batch-{token}", "lote_codigo": lot,
@@ -52,7 +55,10 @@ def _worker(session_factory, dni, rol, num_orden, cod_letra, nombre="ANA", apell
         db.commit()
 
 
-def _upload(client, token, dni, codigo, lot, scanned_at="2026-11-14T15:00:00Z", raw=True):
+def _upload(client, session_factory, token, dni, codigo, lot, scanned_at="2026-11-14T15:00:00Z", raw=True):
+    with session_factory() as db:
+        db.add(QREmitido(token=token, dni_trabajador=dni, nn=codigo.strip(), producto="UVA"))
+        db.commit()
     payload = {
         "batch_uuid": f"batch-{token}", "lote_codigo": lot,
         "scans": [{
@@ -69,7 +75,7 @@ def test_lot_report_without_dates_includes_all_days_and_distinct_worker_codes(cl
     _worker(session_factory, "12345678", "EMPACADORA", 1, "AAA")
 
     for token, codigo, date in [("numeric", "007", "2026-11-13"), ("letter", "A", "2026-11-14")]:
-        _upload(client, token, "12345678", codigo, "LOTE-MULTIDIA", f"{date}T15:00:00Z")
+        _upload(client, session_factory, token, "12345678", codigo, "LOTE-MULTIDIA", f"{date}T15:00:00Z")
 
     data = client.get("/api/reports/dni-summary", params={"lote_codigo": "LOTE-MULTIDIA"}).json()
     assert data["date_from"] is None and data["date_to"] is None
@@ -89,10 +95,10 @@ def test_role_classification_is_independent_of_printed_code(client, session_fact
     _worker(session_factory, "11111111", "EMPACADORA", 1, "AAA", nombre="ANA")
     _worker(session_factory, "22222222", "SELECCIONADOR", 2, "AAB", nombre="LUIS", apellido="SOTO")
 
-    _upload(client, "ana-num", "11111111", "001", "LOTE-ROLES")
-    _upload(client, "ana-letra", "11111111", "AAA", "LOTE-ROLES")
-    _upload(client, "luis-num", "22222222", "002", "LOTE-ROLES")
-    _upload(client, "luis-letra", "22222222", "AAB", "LOTE-ROLES")
+    _upload(client, session_factory, "ana-num", "11111111", "001", "LOTE-ROLES")
+    _upload(client, session_factory, "ana-letra", "11111111", "AAA", "LOTE-ROLES")
+    _upload(client, session_factory, "luis-num", "22222222", "002", "LOTE-ROLES")
+    _upload(client, session_factory, "luis-letra", "22222222", "AAB", "LOTE-ROLES")
 
     data = client.get("/api/reports/dni-summary", params={"lote_codigo": "LOTE-ROLES"}).json()
     assert data["totals"] == {
@@ -119,8 +125,8 @@ def test_role_classification_is_independent_of_printed_code(client, session_fact
 def test_missing_raw_is_counted_and_codes_are_trimmed(client, session_factory):
     _worker(session_factory, "12345678", "EMPACADORA", 1, "AAA")
 
-    _upload(client, "sin-raw", "12345678", "", "LOTE-NORMALIZA", raw=False)
-    _upload(client, "con-espacios", "12345678", " 001 ", "LOTE-NORMALIZA")
+    _upload(client, session_factory, "sin-raw", "12345678", "", "LOTE-NORMALIZA", raw=False)
+    _upload(client, session_factory, "con-espacios", "12345678", " 001 ", "LOTE-NORMALIZA")
 
     data = client.get("/api/reports/dni-summary", params={"lote_codigo": "LOTE-NORMALIZA"}).json()
     assert data["totals"]["total_lecturas"] == 2

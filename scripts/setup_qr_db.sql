@@ -1,15 +1,9 @@
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'qr_user') THEN
-    CREATE ROLE qr_user LOGIN PASSWORD 'Nomeacuerd0';
-  ELSE
-    ALTER ROLE qr_user WITH LOGIN PASSWORD 'Nomeacuerd0';
-  END IF;
-END
-$$;
-
+-- Ejecutar mediante create_qr_user.sh con un administrador PostgreSQL.
+-- No cambia contraseñas de usuarios existentes ni elimina datos.
+\getenv qr_password QR_DB_PASSWORD
+SELECT format('CREATE ROLE qr_user LOGIN PASSWORD %L', :'qr_password')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'qr_user')
+\gexec
 SELECT 'CREATE DATABASE qr_produccion OWNER qr_user'
 WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'qr_produccion')
 \gexec
-
-GRANT ALL PRIVILEGES ON DATABASE qr_produccion TO qr_user;

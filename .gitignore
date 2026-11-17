@@ -22,4 +22,5 @@ __pycache__/
 *.db-wal
 .dev_backend.pid
 backups/
+personas_import.csv
 /dist/

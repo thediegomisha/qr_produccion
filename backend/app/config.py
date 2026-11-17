@@ -13,15 +13,19 @@ DATABASE_URL = os.getenv("DATABASE_URL") or (
     f"@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 )
 
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "CAMBIA_ESTA_CLAVE_LARGA_Y_SEGURA")
+def _required_secret(name: str) -> str:
+    value = os.getenv(name, "")
+    if len(value) < 32 or value.startswith("CAMBIA_"):
+        raise RuntimeError(f"{name} debe configurarse con un secreto aleatorio de al menos 32 caracteres")
+    return value
+
+
+JWT_SECRET_KEY = _required_secret("JWT_SECRET_KEY")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "720"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
-QR_SIGNING_SECRET = os.getenv(
-    "QR_SIGNING_SECRET",
-    "JUANDIEGOALEXANDER-DOMINICKMIKHAIK-ANDREAANAIS",
-).encode("utf-8")
+QR_SIGNING_SECRET = _required_secret("QR_SIGNING_SECRET").encode("utf-8")
 
 # Compatibilidad con código existente
 SECRET_KEY = QR_SIGNING_SECRET

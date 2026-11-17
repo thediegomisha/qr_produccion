@@ -64,6 +64,8 @@ def crear_usuario(data: dict, user: dict = Depends(get_current_user)):
 
     if not usuario or not nombre or not password or not rol_nuevo:
         raise HTTPException(400, "Campos obligatorios incompletos")
+    if len(password) < 12:
+        raise HTTPException(400, "La contraseña debe tener al menos 12 caracteres")
 
     if rol_nuevo not in ROLES_VALIDOS:
         raise HTTPException(400, "Rol inválido")
@@ -214,8 +216,8 @@ def cambiar_password(usuario_id: str, data: dict, user: dict = Depends(get_curre
     new_password = (data.get("password") or "").strip()
     if not new_password:
         raise HTTPException(400, "Password obligatorio")
-    if len(new_password) < 6:
-        raise HTTPException(400, "Password muy corto (mínimo 6)")
+    if len(new_password) < 12:
+        raise HTTPException(400, "Password muy corto (mínimo 12)")
 
     with SessionLocal() as db:
         target = db.execute(

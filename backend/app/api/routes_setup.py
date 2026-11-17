@@ -1,4 +1,6 @@
-from fastapi import APIRouter, HTTPException
+import os
+import secrets
+from fastapi import APIRouter, HTTPException, Header, Depends
 from sqlalchemy import text
 from app.db.base import SessionLocal
 from app.core.passwords import hash_password
@@ -11,7 +13,13 @@ from app.core.passwords import hash_password
 # - EN main.py NO DEBE REPETIRSE
 # ======================================================
 
-router = APIRouter(prefix="/setup", tags=["Setup"])
+def require_bootstrap(x_bootstrap_token: str = Header("")):
+    expected = os.getenv("BOOTSTRAP_TOKEN", "")
+    if len(expected) < 32 or not secrets.compare_digest(x_bootstrap_token, expected):
+        raise HTTPException(403, "Bootstrap no autorizado")
+
+
+router = APIRouter(prefix="/setup", tags=["Setup"], dependencies=[Depends(require_bootstrap)])
 
 
 # ------------------------------------------------------
@@ -58,10 +66,10 @@ def init_root(data: dict):
             detail="usuario, nombre y password son obligatorios"
         )
 
-    if len(password) < 6:
+    if len(password) < 12:
         raise HTTPException(
             status_code=400,
-            detail="El password debe tener al menos 6 caracteres"
+            detail="El password debe tener al menos 12 caracteres"
         )
 
     with SessionLocal() as db:

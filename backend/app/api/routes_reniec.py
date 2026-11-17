@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from app.core.auth_dep import get_current_user
 from app.services.reniec import consultar_dni
 
-router = APIRouter(prefix="/reniec", tags=["RENIEC"])
+router = APIRouter(prefix="/reniec", tags=["RENIEC"], dependencies=[Depends(get_current_user)])
 
 @router.get("/dni/{dni}")
 def validar_dni(dni: str):

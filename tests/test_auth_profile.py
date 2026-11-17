@@ -50,3 +50,20 @@ def test_login_refresh_and_profile_include_name_without_changing_nickname(
         assert profile.status_code == 200
         assert profile.json() == {"usuario": "anita", "nombre": nombre or "", "rol": "OPERADOR"}
         assert "password_hash" not in profile.json()
+
+
+def test_password_reset_revokes_both_token_types(session_factory, monkeypatch):
+    monkeypatch.setattr(routes_auth, "SessionLocal", session_factory)
+    monkeypatch.setattr(routes_auth, "verify_password", lambda *args: True)
+    with session_factory() as db:
+        db.add(Usuario(usuario="revoked", nombre="Test", rol="OPERADOR", password_hash="old", activo=True))
+        db.commit()
+    app = FastAPI()
+    app.include_router(routes_auth.router)
+    with TestClient(app) as client:
+        tokens = client.post("/auth/login", json={"usuario": "revoked", "password": "test"}).json()
+        with session_factory() as db:
+            db.query(Usuario).filter_by(usuario="revoked").update({"password_hash": "new"})
+            db.commit()
+        assert client.post("/auth/refresh", json={"refresh_token": tokens["refresh_token"]}).status_code == 401
+        assert client.get("/auth/me", headers={"Authorization": f"Bearer {tokens['access_token']}"}).status_code == 401

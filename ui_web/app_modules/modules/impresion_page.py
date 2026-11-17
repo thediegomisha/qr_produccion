@@ -35,6 +35,7 @@ def render(
         try:
             r = requests.post(
                 f"{API}/qr/preview",
+                headers=auth_headers(),
                 json={
                     "dni": trabajador["dni"],
                     "nn": valor_visible,

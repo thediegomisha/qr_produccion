@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy import text
 from app.db.base import SessionLocal
-from app.core.session import get_rol
+from app.core.auth_dep import get_current_user
 
 router = APIRouter(prefix="/impresoras", tags=["Impresoras"])
 
@@ -10,7 +10,7 @@ router = APIRouter(prefix="/impresoras", tags=["Impresoras"])
 # LISTAR impresoras activas
 # --------------------------------------------------
 @router.get("/")
-def listar_impresoras():
+def listar_impresoras(user=Depends(get_current_user)):
     with SessionLocal() as db:
         rows = db.execute(
             text("""
@@ -28,8 +28,8 @@ def listar_impresoras():
 # CREAR impresora (solo ROOT)
 # --------------------------------------------------
 @router.post("/")
-def crear_impresora(data: dict):
-    if get_rol() != "ROOT":
+def crear_impresora(data: dict, user=Depends(get_current_user)):
+    if user["rol"] != "ROOT":
         raise HTTPException(403, "Solo ROOT puede crear impresoras")
 
     nombre = data.get("nombre")

@@ -320,15 +320,20 @@ COLUMNAS_TRABAJADOR = [
 # BOOTSTRAP SISTEMA ROOT
 # --------------------------------------------------
 resp = None
+bootstrap_enabled = os.getenv("ENABLE_BOOTSTRAP", "").lower() == "true"
+bootstrap_headers = {"X-Bootstrap-Token": os.getenv("BOOTSTRAP_TOKEN", "")} if bootstrap_enabled else {}
 try:
-    resp = requests.get(f"{API}/setup/status", timeout=10)
+    resp = requests.get(
+        f"{API}/setup/status" if bootstrap_enabled else f"{API}/health",
+        headers=bootstrap_headers, timeout=10,
+    )
 except requests.RequestException as e:
     st.title("Conexión con backend no disponible")
     st.error(f"No se pudo conectar a {API}: {e}")
     st.info("Verifique que el backend esté levantado y que API_URL apunte al host correcto.")
     st.stop()
 
-if resp is not None and resp.status_code == 200 and not resp.json().get("initialized"):
+if bootstrap_enabled and resp is not None and resp.status_code == 200 and not resp.json().get("initialized"):
     st.title("Inicialización del sistema")
     st.info("Debe crear el usuario administrador (ROOT)")
 
@@ -339,6 +344,7 @@ if resp is not None and resp.status_code == 200 and not resp.json().get("initial
     if st.button("Crear administrador"):
         r = requests.post(
             f"{API}/setup/init-root",
+            headers=bootstrap_headers,
             json={
                 "usuario": usuario_root,
                 "nombre": nombre_root,

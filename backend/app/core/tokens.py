@@ -1,4 +1,5 @@
 import secrets
 
 def generar_token(prefijo: str) -> str:
-    return f"{prefijo[:2].upper()}-{secrets.token_hex(4).upper()}"
+    # 96 bits en 16 caracteres: evita el espacio de solo 32 bits anterior.
+    return secrets.token_urlsafe(12)

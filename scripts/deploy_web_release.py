@@ -64,9 +64,9 @@ def wait_for_health(backend_port, frontend_port):
     last_error = None
     for _ in range(30):
         try:
-            with urlopen(f"http://127.0.0.1:{backend_port}/api/setup/status", timeout=3) as response:
+            with urlopen(f"http://127.0.0.1:{backend_port}/api/health", timeout=3) as response:
                 data = json.load(response)
-                if not isinstance(data.get("initialized"), bool):
+                if data.get("status") != "ok":
                     raise ValueError("El backend no respondió con el estado esperado")
             with urlopen(f"http://127.0.0.1:{frontend_port}/_stcore/health", timeout=3) as response:
                 if response.read().strip() != b"ok":

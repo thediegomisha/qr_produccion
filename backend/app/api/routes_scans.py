@@ -2,10 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from sqlalchemy import text
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import json
 
 from app.db.base import SessionLocal
+from app.db.models import QREmitido
 from app.core.auth_dep import get_current_user
 
 router = APIRouter(prefix="/scans", tags=["scans"])
@@ -64,6 +65,20 @@ def upload_batch(payload: BatchIn, user=Depends(get_current_user)):
             "duplicate_count": 0
         }
 
+    if len(payload.scans) > 5000:
+        raise HTTPException(400, "Máximo 5000 lecturas por lote de envío")
+    now = datetime.now(timezone.utc)
+    for scan in payload.scans:
+        if not scan.token.strip() or len(scan.token) > 128:
+            raise HTTPException(400, "Token inválido")
+        if len(scan.dni) != 8 or not scan.dni.isascii() or not scan.dni.isdigit():
+            raise HTTPException(400, "DNI inválido")
+        when = scan.scanned_at
+        # Las APK antiguas pueden enviar hora UTC sin sufijo.
+        when = when.replace(tzinfo=timezone.utc) if when.tzinfo is None else when.astimezone(timezone.utc)
+        if when > now + timedelta(minutes=5) or when.year < 2020:
+            raise HTTPException(400, "Fecha de lectura inválida")
+
     lote_codigo = _norm_lote(payload.lote_codigo)
     if not lote_codigo:
         raise HTTPException(400, "Falta lote_codigo")
@@ -98,6 +113,16 @@ def upload_batch(payload: BatchIn, user=Depends(get_current_user)):
     accepted = 0
 
     with SessionLocal() as db:
+        # Validar el envío entero antes de crear lotes o insertar lecturas.
+        tokens = {scan.token.strip() for scan in payload.scans}
+        emissions = {
+            row.token: row for row in db.query(QREmitido).filter(QREmitido.token.in_(tokens)).all()
+        }
+        for scan in payload.scans:
+            emission = emissions.get(scan.token.strip())
+            if emission is None or emission.dni_trabajador.strip() != scan.dni:
+                raise HTTPException(400, "QR no emitido o DNI no coincide con la emisión")
+
         # 1) Resolver / crear lote
         lote_row = db.execute(
             text("SELECT id, estado FROM lotes WHERE codigo = :c FOR UPDATE"),

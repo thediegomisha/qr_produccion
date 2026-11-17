@@ -2,6 +2,8 @@ import os
 import json
 import base64
 import logging
+from urllib.parse import urlsplit
+from fastapi import HTTPException
 from typing import Dict, Any, Optional, List
 import requests
 
@@ -34,7 +36,21 @@ def _headers(agent_token: Optional[str] = None) -> Dict[str, str]:
 def _resolve_agent_url(agent_url: Optional[str] = None, agent_id: Optional[str] = None) -> str:
     # 1) URL explícita (desde UI)
     if agent_url:
-        return agent_url.rstrip("/")
+        candidate = agent_url.rstrip("/")
+        allowed = {str(a.get("base_url", "")).rstrip("/") for a in AGENTS}
+        allowed.add((DEFAULT_AGENT_URL or "").rstrip("/"))
+        allowed.update(
+            value.strip().rstrip("/")
+            for value in os.getenv("PRINT_AGENT_ALLOWED_URLS", "").split(",") if value.strip()
+        )
+        parsed = urlsplit(candidate)
+        if (
+            candidate not in allowed or parsed.scheme not in ("http", "https")
+            or not parsed.hostname or parsed.username or parsed.password
+            or parsed.query or parsed.fragment
+        ):
+            raise HTTPException(400, "Agente de impresión no autorizado en el servidor")
+        return candidate
 
     # 2) URL por env
     if DEFAULT_AGENT_URL:
@@ -84,6 +100,11 @@ def enviar_job_agente(
         "copies": int(copies),
     }
 
-    r = requests.post(url, json=payload, headers=_headers(agent_token=agent_token), timeout=timeout)
+    r = requests.post(
+        url, json=payload, headers=_headers(agent_token=agent_token),
+        timeout=timeout, allow_redirects=False,
+    )
+    if 300 <= r.status_code < 400:
+        raise HTTPException(502, "El agente de impresión no puede redirigir solicitudes")
     r.raise_for_status()
     return r.json()

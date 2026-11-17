@@ -1,119 +1,42 @@
 import io
 import json
-import qrcode
-from PIL import Image, ImageDraw, ImageFont
-from app.core.security import sign
 
-# Fuente robusta disponible en Linux
+import qrcode
+from PIL import ImageDraw, ImageFont
+
 FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
 
+def compact_payload(token: str, dni: str, visible: str, producto: str) -> dict:
+    """Conserva el producto para consultas directas de raw->>'p'."""
+    return {"t": str(token), "dni": str(dni), "id": str(visible), "p": str(producto)}
+
+
 def generar_qr_memoria(token: str, dni: str, numord: str, producto: str):
-    """
-    Genera un QR en memoria con:
-    - Payload firmado
-    - Número de orden (numord) visible en el centro
-    - Cuadro blanco centrado
-    - Texto perfectamente centrado dentro del cuadro
-    """
-
-    # ------------------------------------------------------------------
-    # 1) Construcción del payload + firma
-    # ------------------------------------------------------------------
-    base = f"{token}|{dni}|{numord}|{producto}|1"
-
-    payload = {
-        "t": token,
-        "dni": dni,
-        "id": numord,      # número de orden visual (3 dígitos)
-        "p": producto,
-        "v": 1,
-        "sig": sign(base)
-    }
-
-    data = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
-
-    # ------------------------------------------------------------------
-    # 2) Generación del QR (alta tolerancia para overlay central)
-    # ------------------------------------------------------------------
+    data = json.dumps(compact_payload(token, dni, numord, producto), separators=(",", ":"), ensure_ascii=False)
     qr = qrcode.QRCode(
-        version=None,
-        error_correction=qrcode.constants.ERROR_CORRECT_H,  # margen alto
-        box_size=10,
-        border=4
+        error_correction=qrcode.constants.ERROR_CORRECT_H,
+        box_size=4, border=4,
     )
     qr.add_data(data)
     qr.make(fit=True)
-
+    qr.box_size = min(4, 200 // (qr.modules_count + 8))
+    if qr.box_size < 2:
+        raise ValueError("El payload no cabe en la etiqueta")
     img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
-
-    # ------------------------------------------------------------------
-    # 3) Preparación para dibujo
-    # ------------------------------------------------------------------
     draw = ImageDraw.Draw(img)
-    w, h = img.size
-
-    # Centro geométrico exacto del QR
-    cx, cy = w // 2, h // 2
-
-    # Fuente proporcional al tamaño del QR
-    font_size = int(w * 0.18)  # 18% del ancho total
-    font = ImageFont.truetype(FONT_PATH, font_size)
-
-    # ------------------------------------------------------------------
-    # 4) Medición correcta del texto (centrado real)
-    # ------------------------------------------------------------------
-    # IMPORTANTE: usar anchor="mm" para medición y dibujo coherentes
-    bbox = draw.textbbox((0, 0), numord, font=font, anchor="mm")
-    text_width = bbox[2] - bbox[0]
-    text_height = bbox[3] - bbox[1]
-
-    # Padding del cuadro blanco
-    padding = int(font_size * 0.20)
-
-    # ------------------------------------------------------------------
-    # 5) Cuadro blanco perfectamente centrado
-    # ------------------------------------------------------------------
-    draw.rectangle(
-        [
-            cx - (text_width // 2) - padding,
-            cy - (text_height // 2) - padding,
-            cx + (text_width // 2) + padding,
-            cy + (text_height // 2) + padding,
-        ],
-        fill="white"
-    )
-
-    # ------------------------------------------------------------------
-    # 6) Texto perfectamente centrado dentro del cuadro
-    # ------------------------------------------------------------------
-    draw.text(
-        (cx, cy),
-        numord,
-        fill="black",
-        font=font,
-        anchor="mm"   # 🔑 CLAVE ABSOLUTA DEL CENTRADO CORRECTO
-    )
-
-    # ------------------------------------------------------------------
-    # 7) REDUCCIÓN DE TAMAÑO (20% menos, sin alterar contenido)
-    # ------------------------------------------------------------------
-    scale = 0.4  # 🔹 reducir 60%
-
-    new_w = int(img.width * scale)
-    new_h = int(img.height * scale)
-
-    img = img.resize(
-        (new_w, new_h),
-        resample=Image.Resampling.LANCZOS  
-    )
-
-    # ------------------------------------------------------------------
-    # 8) Retorno del QR en memoria
-    # ------------------------------------------------------------------
+    # Mismo recuadro pequeño que en ZPL; sin interpolar los módulos.
+    cx, cy = img.width // 2, img.height // 2
+    draw.rectangle((cx - 22, cy - 13, cx + 21, cy + 12), fill="white")
+    font_size = 20
+    while True:
+        font = ImageFont.truetype(FONT_PATH, font_size)
+        bbox = draw.textbbox((0, 0), str(numord), font=font)
+        if bbox[2] - bbox[0] <= 40 or font_size <= 8:
+            break
+        font_size -= 1
+    draw.text((cx, cy), str(numord), font=font, fill="black", anchor="mm")
     buffer = io.BytesIO()
     img.save(buffer, format="PNG")
     buffer.seek(0)
-
     return buffer
-

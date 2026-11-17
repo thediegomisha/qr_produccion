@@ -16,9 +16,12 @@ sys.path.insert(0, str(ROOT / "ui_web"))
 
 # Route imports must never load the application entrypoint or production .env.
 os.environ["DATABASE_URL"] = "sqlite://"
+os.environ["JWT_SECRET_KEY"] = "test-only-jwt-secret-not-for-deployment-0001"
+os.environ["QR_SIGNING_SECRET"] = "test-only-qr-secret-not-for-deployment-00001"
 
 from app.api import routes_dashboard, routes_lotes, routes_reports, routes_scans
 from app.core.auth_dep import get_current_user
+from app.core import auth_dep
 from app.db.models import Base
 
 
@@ -54,6 +57,7 @@ def session_factory(engine, monkeypatch):
     monkeypatch.setattr(routes_scans, "SessionLocal", factory)
     monkeypatch.setattr(routes_dashboard, "SessionLocal", factory)
     monkeypatch.setattr(routes_reports, "SessionLocal", factory)
+    monkeypatch.setattr(auth_dep, "SessionLocal", factory)
     return factory
 
 

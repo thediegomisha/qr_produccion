@@ -19,6 +19,8 @@ export class Scanner {
     this.lastAt = 0;
     this.stopped = false;
     this.track = null;
+    this.watchdog = null;
+    this.captureErrors = 0;
   }
 
   async start() {
@@ -90,8 +92,12 @@ export class Scanner {
         } else if (data.type === "error") {
           fail(new Error(data.message));
         } else if (data.type === "result" && !this.stopped) {
-          if (data.text) this.emit(data.text);
-          this.timer = setTimeout(() => this.capture(), 140);
+          clearTimeout(this.watchdog);
+          try {
+            if (data.text) this.emit(data.text);
+          } finally {
+            if (!this.stopped) this.timer = setTimeout(() => this.capture(), 140);
+          }
         }
       };
     });
@@ -106,7 +112,7 @@ export class Scanner {
     }
     try {
       // Decode the entire frame; the overlay does not crop away dense QR codes.
-      const scale = Math.min(1, 1600 / Math.max(width, height));
+      const scale = 1;
       this.canvas.width = Math.round(width * scale);
       this.canvas.height = Math.round(height * scale);
       this.context.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
@@ -115,8 +121,21 @@ export class Scanner {
         type: "decode", width: image.width, height: image.height,
         buffer: image.data.buffer, formats: this.formats,
       }, [image.data.buffer]);
+      this.captureErrors = 0;
+      clearTimeout(this.watchdog);
+      this.watchdog = setTimeout(() => {
+        if (!this.stopped) {
+          this.stop();
+          this.onError(new Error("El lector no responde. Pulsa Reintentar para reiniciarlo."));
+        }
+      }, 10000);
     } catch (error) {
-      this.onError(error);
+      if (++this.captureErrors >= 5) {
+        this.stop();
+        this.onError(error);
+      } else if (!this.stopped) {
+        this.timer = setTimeout(() => this.capture(), 250);
+      }
     }
   }
 
@@ -168,6 +187,7 @@ export class Scanner {
   stop() {
     this.stopped = true;
     clearTimeout(this.timer);
+    clearTimeout(this.watchdog);
     this.cancelInit?.();
     this.cancelInit = null;
     this.worker?.terminate();
@@ -204,14 +224,14 @@ export function parseQrPayload(raw) {
   text = text.slice(start);
   try {
     const obj = JSON.parse(text);
-    if (!obj || typeof obj !== "object") return null;
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
     return {
       t: String(obj.t ?? "").trim(),
       dni: String(obj.dni ?? "").replace(/\D/g, ""),
       id: String(obj.id ?? "").trim(),
-      producto: String(obj.producto ?? "").trim(),
-      version: String(obj.version ?? "").trim(),
-      firma: String(obj.firma ?? "").trim(),
+      producto: String(obj.p ?? obj.producto ?? "").trim(),
+      version: String(obj.v ?? obj.version ?? "").trim(),
+      firma: String(obj.sig ?? obj.firma ?? "").trim(),
       raw: obj,
     };
   } catch {

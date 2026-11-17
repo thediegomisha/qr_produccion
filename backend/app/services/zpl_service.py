@@ -1,47 +1,22 @@
 import json
 import qrcode
-from app.core.security import sign
+from app.services.qr_service import compact_payload
 
-def generar_zpl_qr( token: str, dni: str, visible: str, producto: str,):
-
-    # --------------------------------------------------
-    # Payload QR
-    # --------------------------------------------------
-    base = f"{token}|{dni}|{visible}|{producto}|1"
-
-    payload = {
-        "t": token,
-        "dni": dni,
-        "id": visible,
-        "p": producto,
-        "v": 1,
-        "sig": sign(base)
-    }
-
-    qr_data = json.dumps(payload, separators=(",", ":"))
-
-    # --------------------------------------------------
-    # ZPL
-    # --------------------------------------------------
-    zpl = f"""
-        ^XA
-        ^PW199
-        ^LL199
-
-        ^FO0,2
-        ^BQN,2,3
-        ^FDHA,{qr_data}^FS
-
-        ^FO55,71
-        ^GB70,40,40,W,0^FS
-
-        ^FO68,80
-        ^A0N,30,30
-        ^FD{visible}^FS
-
-        ^XZ
-        """
-    return zpl.strip()
+def generar_zpl_qr(token: str, dni: str, visible: str, producto: str):
+    data = json.dumps(compact_payload(token, dni, visible, producto), separators=(",", ":"))
+    modules = _qr_modules_count_H(data)
+    mag = min(4, 199 // (modules + 8))
+    if mag < 2:
+        raise ValueError("El payload no cabe en la etiqueta")
+    origin = (199 - modules * mag) // 2
+    return "\n".join([
+        "^XA", "^PW199", "^LL199",
+        f"^FO{origin},{origin}", f"^BQN,2,{mag}", f"^FDHA,{data}^FS",
+        "^FO77,86", "^GB44,26,26,W,0^FS",
+        "^FO77,89", f"^A0N,20,{min(20, 40 // max(1, len(visible)))}",
+        "^FB44,1,0,C,0", f"^FD{visible}^FS",
+        "^XZ",
+    ])
 
 def _mm_to_dots(mm: float, dpi: int = 203) -> int:
     return int(round(mm * dpi / 25.4))
@@ -63,7 +38,7 @@ def generar_zpl_qr_4cols(
     label_mm: float = 25.0,
     gap_mm: float = 1.0,
     margin_mm: float = 1.0,
-    qr_mag: int = 3,   # 👈 empieza con 3 (como tu 1-col)
+    qr_mag: int = 4,
 ):
     # Medidas físicas
     label_w = _mm_to_dots(label_mm, dpi)   # ~200
@@ -73,12 +48,6 @@ def generar_zpl_qr_4cols(
 
     total_w = (label_w * 4) + (gap * 3) + (margin * 2)
     total_h = label_h
-
-    # Tamaños de referencia del recuadro y texto para magnificación 3.
-    base_mag = 4
-    base_box_w = 90
-    base_box_h = 90
-    base_font = 30
 
     zpl = []
     zpl.append("^XA")
@@ -96,14 +65,7 @@ def generar_zpl_qr_4cols(
 
         payload = it.get("payload")
         if payload is None:
-            payload = {
-                "t": it["token"],
-                "dni": it["dni"],
-                "id": it["visible"],
-                "p": it["producto"],
-                "v": 1,
-                "sig": it["sig"],
-            }
+            payload = compact_payload(it["token"], it["dni"], it["visible"], it["producto"])
 
         data = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
 
@@ -113,7 +75,7 @@ def generar_zpl_qr_4cols(
         max_mag = min(label_w, label_h) // (modules + 8)
         mag = min(qr_mag, int(max_mag))
         if mag < 2:
-            mag = 2  # mínimo razonable
+            raise ValueError("El payload no cabe con zona de silencio en la etiqueta")
 
         # Centrar la matriz; el espacio blanco restante rodea el QR por igual.
         qr_size = modules * mag
@@ -125,12 +87,10 @@ def generar_zpl_qr_4cols(
         zpl.append(f"^BQN,2,{mag}")
         zpl.append(f"^FDHA,{data}^FS")   # 👈 HA (H)
 
-        # 3) Escalar tu layout probado según magnificación
-        scale = mag / base_mag
-
-        box_w = int(round(base_box_w * scale))
-        box_h = int(round(base_box_h * scale))
-        font  = int(round(base_font  * scale))
+        # Recuadro fijo: no crece al aumentar el tamaño de los módulos.
+        box_w = 44
+        box_h = 26
+        font = 20
 
         box_x = qr_x + (qr_size - box_w) // 2
         box_y = qr_y + (qr_size - box_h) // 2
@@ -146,9 +106,10 @@ def generar_zpl_qr_4cols(
         # 5) Aumentar un punto ZPL al texto y mantenerlo centrado.
         font = min(max(18, font) + 2, box_h - 6)
         text_y = box_y + max(0, (box_h - font) // 2)
+        font_width = min(font, (box_w - 4) // max(1, len(str(it["visible"]))))
 
         zpl.append(f"^FO{box_x},{text_y}")
-        zpl.append(f"^A0N,{font},{font}")
+        zpl.append(f"^A0N,{font},{font_width}")
         zpl.append(f"^FB{box_w},1,0,C,0")
         zpl.append(f"^FD{it['visible']}^FS")
 

@@ -241,6 +241,12 @@ def test_android_batch_upload_still_works_and_closed_lots_reject_reads(client, s
         "batch_uuid": "test-batch", "lote_codigo": "LOTE-A", "device_id": "test-device",
         "scans": [{"token": "android-read", "dni": "12345678", "scanned_at": "2026-01-01T12:00:00Z", "raw": {"p": "PALTA"}}],
     }
+    with session_factory() as db:
+        db.add_all([
+            QREmitido(token="android-read", dni_trabajador="12345678"),
+            QREmitido(token="must-not-insert", dni_trabajador="12345678"),
+        ])
+        db.commit()
     result = client.post("/api/scans/batch", json=payload)
     assert result.status_code == 200
     assert result.json()["accepted_count"] == 1

@@ -281,5 +281,6 @@ def post_visita(payload: VisitaIn, user=Depends(get_current_user)):
 def list_visitas(
     fecha: date = Query(..., description="YYYY-MM-DD"),
     limit: int = Query(500, ge=1, le=500),
+    user=Depends(get_current_user),
 ):
     return {"items": db_list_visitas(fecha, limit)}
