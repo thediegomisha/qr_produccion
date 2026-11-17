@@ -18,6 +18,8 @@ sys.path.insert(0, str(ROOT / "ui_web"))
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["JWT_SECRET_KEY"] = "test-only-jwt-secret-not-for-deployment-0001"
 os.environ["QR_SIGNING_SECRET"] = "test-only-qr-secret-not-for-deployment-00001"
+# CI no redistribuye Arial. La validación local puede aportar la fuente real.
+os.environ.setdefault("QR_FONT_PATH", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
 
 from app.api import routes_dashboard, routes_lotes, routes_reports, routes_scans
 from app.core.auth_dep import get_current_user

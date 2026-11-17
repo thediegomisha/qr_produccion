@@ -34,7 +34,7 @@ const { PNG } = require("pngjs");
     assert.equal(results.find(result => result.isValid)?.text, JSON.stringify({
       t: "AbCdEf0123_-XY89", dni: "12345678", id: code, p: product,
     }));
-    console.log(`PASS: backend PNG + 48x30 overlay and 22-dot text, ${product}/${code}, ${size}px, blur ${blur}px`);
+    console.log(`PASS: backend PNG + 48x30 overlay and 24-dot bold text, ${product}/${code}, ${size}px, blur ${blur}px`);
   }
   }
 })().catch(error => { console.error(error); process.exitCode = 1; });

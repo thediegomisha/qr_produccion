@@ -5,8 +5,8 @@ import pytest
 import qrcode
 from PIL import Image, ImageChops
 
-from app.services import zpl_service
-from app.services.qr_service import compact_payload, generar_qr_memoria
+from app.services import zpl_service, qr_service
+from app.services.qr_service import compact_payload, generar_qr_memoria, render_center_label
 
 
 @pytest.mark.parametrize("modules", [41, 57, 73])
@@ -31,15 +31,26 @@ def test_four_column_qrs_and_number_boxes_are_centered(monkeypatch, modules):
 
 
 @pytest.mark.parametrize("visible", ["7", "007", "ABC", "WWW"])
-def test_center_text_is_22_dots_in_both_zpl_formats(visible):
+def test_center_text_bitmap_matches_preview_in_both_zpl_formats(visible):
     single = zpl_service.generar_zpl_qr("AbCdEf0123_-XY89", "12345678", visible, "UVA")
     four = zpl_service.generar_zpl_qr_4cols([
         {"token": "AbCdEf0123_-XY89", "dni": "12345678", "visible": visible, "producto": "UVA"}
     ])
     for zpl in (single, four):
         assert "^GB48,30,30,W,0" in zpl
-        assert re.search(r"\^A0N,22,\d+", zpl)
-        assert "^FB48,1,0,C,0" in zpl
+        match = re.search(r"\^GFA,(\d+),(\d+),(\d+),([0-9A-F]+)\^FS", zpl)
+        assert match is not None
+        assert tuple(map(int, match.groups()[:3])) == (180, 180, 6)
+        packed = bytes.fromhex(match[4])
+        assert len(packed) == 180
+        # ZPL usa 1=negro: invertir al reconstruir para comparar con Pillow.
+        ink = Image.frombytes("1", (48, 30), packed)
+        panel = ImageChops.invert(ink.convert("L")).convert("1")
+        assert panel.tobytes() == render_center_label(visible).tobytes()
+        preview = Image.open(generar_qr_memoria("AbCdEf0123_-XY89", "12345678", visible, "UVA"))
+        x, y = (preview.width - 48) // 2, (preview.height - 30) // 2
+        assert preview.crop((x, y, x + 48, y + 30)).convert("1").tobytes() == panel.tobytes()
+        assert "^A0N" not in zpl
     assert "^PW199" in single and "^LL199" in single
     assert "^PW840" in four and "^LL200" in four
 
@@ -66,3 +77,26 @@ def test_preview_only_changes_pixels_inside_center_rectangle(visible):
     assert text_bbox is not None
     assert 2 <= text_bbox[0] and text_bbox[2] <= 46
     assert 2 <= text_bbox[1] and text_bbox[3] <= 28
+
+
+def test_center_font_uses_24_points_without_reducing_its_height(monkeypatch):
+    sizes = []
+    original = qr_service._center_font
+    def capture(path, size):
+        sizes.append(size)
+        return original(path, size)
+    monkeypatch.setattr(qr_service, "_center_font", capture)
+    render_center_label("WWW")
+    assert qr_service.CENTER_FONT_SIZE == 24
+    assert sizes == [24]
+
+
+def test_missing_configured_font_does_not_silently_use_another_font(monkeypatch):
+    monkeypatch.setattr(qr_service, "FONT_PATH", "/nonexistent/arialbd.ttf")
+    with pytest.raises(OSError):
+        render_center_label("007")
+
+
+def test_empty_center_graphic_does_not_print_any_black_pixels():
+    graphic = zpl_service._center_graphic_zpl("")
+    assert graphic == "^GFA,180,180,6," + "00" * 180 + "^FS"

@@ -1,8 +1,20 @@
 import json
 import qrcode
+from PIL import Image, ImageChops
 from app.services.qr_service import (
-    compact_payload, CENTER_BOX_WIDTH, CENTER_BOX_HEIGHT, CENTER_FONT_SIZE,
+    compact_payload, render_center_label, CENTER_BOX_WIDTH, CENTER_BOX_HEIGHT,
 )
+
+
+def _center_graphic_zpl(visible: str) -> str:
+    """Texto rasterizado: no depende de fuentes instaladas en la impresora."""
+    panel = render_center_label(visible)
+    # PIL: 1=blanco. ZPL: bit 1=negro. El padding de fila debe quedar a cero.
+    ink = ImageChops.invert(panel.convert("L")).convert("1", dither=Image.Dither.NONE)
+    packed = ink.tobytes()
+    row_bytes = (panel.width + 7) // 8
+    return f"^GFA,{len(packed)},{len(packed)},{row_bytes},{packed.hex().upper()}^FS"
+
 
 def generar_zpl_qr(token: str, dni: str, visible: str, producto: str):
     data = json.dumps(compact_payload(token, dni, visible, producto), separators=(",", ":"))
@@ -13,15 +25,12 @@ def generar_zpl_qr(token: str, dni: str, visible: str, producto: str):
     origin = (199 - modules * mag) // 2
     box_x = (199 - CENTER_BOX_WIDTH) // 2
     box_y = (199 - CENTER_BOX_HEIGHT) // 2
-    text_y = box_y + (CENTER_BOX_HEIGHT - CENTER_FONT_SIZE) // 2
-    font_width = min(CENTER_FONT_SIZE, (CENTER_BOX_WIDTH - 4) // max(1, len(str(visible))))
     return "\n".join([
         "^XA", "^PW199", "^LL199",
         f"^FO{origin},{origin}", f"^BQN,2,{mag}", f"^FDHA,{data}^FS",
         f"^FO{box_x},{box_y}",
         f"^GB{CENTER_BOX_WIDTH},{CENTER_BOX_HEIGHT},{CENTER_BOX_HEIGHT},W,0^FS",
-        f"^FO{box_x},{text_y}", f"^A0N,{CENTER_FONT_SIZE},{font_width}",
-        f"^FB{CENTER_BOX_WIDTH},1,0,C,0", f"^FD{visible}^FS",
+        f"^FO{box_x},{box_y}", _center_graphic_zpl(visible),
         "^XZ",
     ])
 
@@ -97,7 +106,6 @@ def generar_zpl_qr_4cols(
         # Recuadro fijo: no crece al aumentar el tamaño de los módulos.
         box_w = CENTER_BOX_WIDTH
         box_h = CENTER_BOX_HEIGHT
-        font = CENTER_FONT_SIZE
 
         box_x = qr_x + (qr_size - box_w) // 2
         box_y = qr_y + (qr_size - box_h) // 2
@@ -110,14 +118,9 @@ def generar_zpl_qr_4cols(
         zpl.append(f"^FO{box_x},{box_y}")
         zpl.append(f"^GB{box_w},{box_h},{box_h},W,0^FS")
 
-        # 5) Altura exacta de 22 puntos ZPL, centrada con margen interior.
-        text_y = box_y + max(0, (box_h - font) // 2)
-        font_width = min(font, (box_w - 4) // max(1, len(str(it["visible"]))))
-
-        zpl.append(f"^FO{box_x},{text_y}")
-        zpl.append(f"^A0N,{font},{font_width}")
-        zpl.append(f"^FB{box_w},1,0,C,0")
-        zpl.append(f"^FD{it['visible']}^FS")
+        # 5) Arial Bold real rasterizada, idéntica a la vista previa.
+        zpl.append(f"^FO{box_x},{box_y}")
+        zpl.append(_center_graphic_zpl(it["visible"]))
 
     zpl.append("^XZ")
     return "\n".join(zpl)

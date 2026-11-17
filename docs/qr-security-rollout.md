@@ -13,8 +13,12 @@
   UVA y 64 para PALTA. El prefijo del producto ya no es necesario.
 - ECC H, zona de silencio de cuatro módulos, magnificación máxima que cabe
   (3 para UVA/PALTA con token de 16 caracteres) y recuadro central fijo de 48 × 30 puntos.
-- Texto central con altura de 22 puntos ZPL (antes 20); el ancho se ajusta para
-  que tres caracteres no se recorten. Las medidas de la etiqueta no cambian.
+- Texto central en Arial Negrita de 24 puntos (antes 22), rasterizado como
+  gráfico ZPL para no depender de las fuentes de la impresora. El panel de la
+  vista previa usa exactamente los mismos píxeles. El ancho se ajusta para que
+  tres caracteres no se recorten. Las medidas de la etiqueta no cambian.
+- La fuente se instala por separado en `shared/fonts/arialbd.ttf`; no se incluye
+  en Git ni en el ZIP. Ver [instalación de Arial](qr-arial-bold.md) antes de desplegar.
 - El PNG conserva píxeles enteros, sin reducción interpolada.
 - La APK v1.2.6 puede consumir `t`, `dni`, `id`. El parser PWA acepta tanto las
   claves antiguas cortas como sus alias largos.

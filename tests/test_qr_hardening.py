@@ -40,7 +40,7 @@ def test_compact_label_keeps_product_and_four_25mm_cells(producto):
     assert "^PW840" in zpl and "^LL200" in zpl
     assert zpl.count("^BQN,2,3") == 4
     assert zpl.count("^GB48,30,30,W,0") == 4
-    assert zpl.count("^A0N,22,14") == 4
+    assert zpl.count("^GFA,180,180,6,") == 4
     for data in re.findall(r"\^FDHA,(.+)\^FS", zpl):
         assert json.loads(data) == compact_payload(item["token"], item["dni"], item["visible"], producto)
     assert generar_qr_memoria(item["token"], item["dni"], item["visible"], "UVA").getvalue().startswith(b"\x89PNG")
