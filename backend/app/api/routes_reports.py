@@ -203,7 +203,7 @@ def operator_summary(
     date_from, date_to = _date_pair(date_from, date_to)
 
     sql = text(f"""
-    {production_cte()}
+    {production_cte(include_workers=False)}
     SELECT
       user_id,
       COUNT(*)::int AS total,

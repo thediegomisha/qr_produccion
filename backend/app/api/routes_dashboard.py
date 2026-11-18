@@ -42,7 +42,7 @@ def cajas_por_dia(
     date_to = _clean_optional(date_to)
 
     sql = text(f"""
-        {production_cte()}
+        {production_cte(include_workers=False)}
         SELECT
             (scanned_at AT TIME ZONE 'UTC' AT TIME ZONE :tz)::date AS dia,
             lote,
@@ -258,7 +258,7 @@ def cajas_por_hora(
     date_to = _clean_optional(date_to)
 
     sql = text(f"""
-        {production_cte()}
+        {production_cte(include_workers=False)}
         SELECT
             EXTRACT(HOUR FROM (scanned_at AT TIME ZONE 'UTC' AT TIME ZONE :tz))::int AS hora,
             COUNT(*)::int AS total,
